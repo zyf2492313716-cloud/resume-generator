@@ -11,7 +11,7 @@ export default function App() {
   const [resumeData, setResumeData] = useState(DEFAULT_RESUME_DATA);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateList, setTemplateList] = useState([]);
-  const [previewDocx, setPreviewDocx] = useState(null);
+  const [previewHtml, setPreviewHtml] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notification, setNotification] = useState(null);
   const previewTimerRef = React.useRef(null);
@@ -40,7 +40,7 @@ export default function App() {
         setPreviewLoading(true);
         window.electronAPI.renderPreview(selectedTemplate.name, resumeData).then(result => {
           if (result.success) {
-            setPreviewDocx(result.docxBase64);
+            setPreviewHtml(result.html);
           } else {
             console.error('Preview error:', result.error);
             showNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
@@ -88,7 +88,7 @@ export default function App() {
       />
 
       <PreviewPanel
-        previewDocx={previewDocx}
+        previewHtml={previewHtml}
         previewLoading={previewLoading}
         onNotification={showNotification}
         templateName={selectedTemplate?.name}

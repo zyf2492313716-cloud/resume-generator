@@ -182,13 +182,12 @@ ipcMain.handle('render-preview', async (event, { templateName, resumeData }) => 
   if (!filled) return { success: false, error: '模板填充失败' };
 
   try {
-    const buffer = fs.readFileSync(tempDocx);
-    const base64 = buffer.toString('base64');
+    const result = await mammoth.convertToHtml({ path: tempDocx });
     try { fs.unlinkSync(tempDocx); } catch (e) {}
-    return { success: true, docxBase64: base64 };
+    return { success: true, html: result.value };
   } catch (err) {
     try { fs.unlinkSync(tempDocx); } catch (e) {}
-    return { success: false, error: '读取预览文件失败: ' + err.message };
+    return { success: false, error: '预览转换失败: ' + err.message };
   }
 });
 

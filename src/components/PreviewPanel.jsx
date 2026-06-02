@@ -1,43 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Printer, FileText, Loader } from 'lucide-react';
-import { renderAsync } from 'docx-preview';
 
 export default function PreviewPanel({
-  previewDocx,
+  previewHtml,
   previewLoading,
   onNotification,
   templateName,
   resumeData
 }) {
   const [canvasScale, setCanvasScale] = useState(0.7);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!previewDocx || !containerRef.current) return;
-
-    const buffer = Uint8Array.from(atob(previewDocx), c => c.charCodeAt(0));
-    const container = containerRef.current;
-    container.innerHTML = '';
-
-    renderAsync(buffer, container, undefined, {
-      className: 'docx-preview-inner',
-      inWrapper: false,
-      ignoreWidth: false,
-      ignoreHeight: false,
-      ignoreFonts: false,
-      breakPages: false,
-      ignoreLastRenderedPageBreak: true,
-      experimental: false,
-      trimXmlDeclaration: true,
-      renderHeaders: true,
-      renderFooters: true,
-      renderFootnotes: true,
-      renderEndnotes: true,
-    }).catch(err => {
-      console.error('docx-preview error:', err);
-      onNotification({ type: 'warning', message: '预览渲染失败: ' + err.message });
-    });
-  }, [previewDocx]);
 
   useEffect(() => {
     if (!window.electronAPI) return;
@@ -139,10 +110,12 @@ export default function PreviewPanel({
             </div>
           </div>
         )}
-        {previewDocx ? (
-          <div ref={containerRef} className="preview-content" style={{
-            padding: '0', width: '100%', minHeight: '1123px'
-          }} />
+        {previewHtml ? (
+          <div
+            className="preview-content"
+            style={{ padding: '0', width: '100%', minHeight: '1123px' }}
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
         ) : (
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -156,8 +129,8 @@ export default function PreviewPanel({
       </div>
 
       <style>{`
-        .preview-content .docx-preview-inner {
-          width: 100%;
+        .preview-content {
+          font-family: '宋体', 'SimSun', 'Times New Roman', serif;
         }
         .preview-content table {
           border-collapse: collapse;
