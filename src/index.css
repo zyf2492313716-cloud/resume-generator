@@ -1,0 +1,416 @@
+/* ==========================================================================
+   智能简历生成器 - 核心设计系统 (WOW Aesthetics)
+   ========================================================================== */
+
+/* 引入高端字体 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;700&display=swap');
+
+:root {
+  /* 前端工作台配色 (Dark Premium) */
+  --bg-workspace: #0b0f19;
+  --bg-glass: rgba(17, 25, 40, 0.75);
+  --border-glass: rgba(255, 255, 255, 0.08);
+  --color-text-main: #f3f4f6;
+  --color-text-muted: #9ca3af;
+  --color-accent: #3b82f6;
+  --color-accent-glow: rgba(59, 130, 246, 0.25);
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  /* 默认简历样式 CSS 变量（将通过智能单页算法动态调节） */
+  --theme-primary: #1e3a8a;
+  --theme-font-size-base: 14px;
+  --theme-line-height: 1.6;
+  --theme-padding-y: 12px;
+  --theme-margin-y: 10px;
+  --theme-title-spacing: 6px;
+  --theme-font-family-serif: 'Noto Serif SC', "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", serif;
+  --theme-font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans CN", sans-serif;
+}
+
+/* 全局重置与排版规范 */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--theme-font-family-sans);
+  background-color: var(--bg-workspace);
+  color: var(--color-text-main);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 优质中文字体滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ==========================================================================
+   工作台容器布局 (Workspace Layout)
+   ========================================================================== */
+.workspace-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: radial-gradient(circle at 10% 20%, rgba(20, 24, 45, 1) 0%, rgba(8, 10, 20, 1) 90%);
+  position: relative;
+}
+
+/* 背景科技感光晕 */
+.workspace-container::before {
+  content: "";
+  position: absolute;
+  top: -10%;
+  right: 15%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.1) 0%, transparent 70%);
+  z-index: 0;
+  pointer-events: none;
+}
+.workspace-container::after {
+  content: "";
+  position: absolute;
+  bottom: -5%;
+  left: 20%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.06) 0%, transparent 70%);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* 面板玻璃基座 */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+/* ==========================================================================
+   一、左侧编辑面板 (EditorPanel)
+   ========================================================================== */
+.editor-panel {
+  width: 380px;
+  height: 100%;
+  border-right: 1px solid var(--border-glass);
+}
+
+/* ==========================================================================
+   二、中间预览面板 (PreviewPanel)
+   ========================================================================== */
+.preview-panel {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 20px;
+  overflow-y: auto;
+  position: relative;
+  z-index: 5;
+}
+
+/* A4 画布逼真悬浮纸张 */
+.a4-container {
+  width: 794px; /* A4 96dpi 宽度 */
+  height: 1123px; /* A4 96dpi 高度 */
+  min-width: 794px;
+  min-height: 1123px;
+  background: #ffffff;
+  color: #1f2937;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255, 255, 255, 0.05);
+  border-radius: 1px;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+  transform-origin: top center;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-top: 15px;
+  margin-bottom: 40px;
+}
+
+/* 简历真实渲染内容容器 */
+.a4-content {
+  width: 100%;
+  height: 100%;
+  padding: 40px 45px; /* 标准高雅简历内边距 */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ==========================================================================
+   三、右侧模板面板 (TemplatePanel)
+   ========================================================================== */
+.template-panel {
+  width: 320px;
+  height: 100%;
+  border-left: 1px solid var(--border-glass);
+}
+
+/* ==========================================================================
+   四、五大经典简历模板样式系统 (A4 PDF Ready)
+   ========================================================================== */
+
+/* 1. 极简模板 (Minimalist) */
+.tmpl-minimalist {
+  font-family: var(--theme-font-family-sans);
+}
+.tmpl-minimalist .section-title {
+  font-size: calc(var(--theme-font-size-base) * 1.15);
+  font-weight: 700;
+  color: var(--theme-primary);
+  border-bottom: 1.5px solid #d1d5db;
+  padding-bottom: 3px;
+  margin-bottom: var(--theme-title-spacing);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* 2. 稳重模板 (Classic / 侧边双栏或顶部色带) */
+.tmpl-classic {
+  font-family: var(--theme-font-family-sans);
+}
+.tmpl-classic .header-bar {
+  background-color: var(--theme-primary);
+  color: #ffffff;
+  padding: 24px;
+  margin: -40px -45px 25px -45px; /* 撑满头部 */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tmpl-classic .header-bar h1 {
+  font-size: 26px;
+  letter-spacing: 1px;
+}
+.tmpl-classic .section-title {
+  font-size: calc(var(--theme-font-size-base) * 1.15);
+  font-weight: 700;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--theme-title-spacing);
+}
+.tmpl-classic .section-title::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 18px;
+  background-color: var(--theme-primary);
+  border-radius: 2px;
+}
+
+/* 3. 简约模板 (Modern) */
+.tmpl-modern {
+  font-family: var(--theme-font-family-sans);
+}
+.tmpl-modern .section-title {
+  font-size: calc(var(--theme-font-size-base) * 1.1);
+  font-weight: 600;
+  color: var(--theme-primary);
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--theme-title-spacing);
+}
+.tmpl-modern .section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, var(--theme-primary), rgba(229, 231, 235, 0.5));
+  margin-left: 10px;
+}
+
+/* 4. 活泼模板 (Vibrant) */
+.tmpl-vibrant {
+  font-family: var(--theme-font-family-sans);
+}
+.tmpl-vibrant .section-title {
+  font-size: calc(var(--theme-font-size-base) * 1.15);
+  font-weight: 700;
+  color: var(--theme-primary);
+  background-color: rgba(59, 130, 246, 0.06);
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-bottom: var(--theme-title-spacing);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 4px solid var(--theme-primary);
+}
+
+/* 5. 文艺模板 (Elegant - Noto Serif 衬线体) */
+.tmpl-elegant {
+  font-family: var(--theme-font-family-serif);
+}
+.tmpl-elegant .section-title {
+  font-size: calc(var(--theme-font-size-base) * 1.2);
+  font-weight: 700;
+  color: #111827;
+  text-align: center;
+  letter-spacing: 2px;
+  margin-bottom: calc(var(--theme-title-spacing) * 1.5);
+  position: relative;
+}
+.tmpl-elegant .section-title::after {
+  content: "♦";
+  display: block;
+  font-size: 8px;
+  color: var(--theme-primary);
+  margin: 3px auto 0 auto;
+}
+
+/* ==========================================================================
+   简历基础公用节点排版 (Resume Atoms)
+   ========================================================================== */
+.resume-section {
+  padding-top: var(--theme-padding-y);
+  padding-bottom: var(--theme-padding-y);
+  box-sizing: border-box;
+}
+
+.resume-block-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--theme-margin-y);
+}
+
+.resume-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-weight: 600;
+  font-size: var(--theme-font-size-base);
+  color: #111827;
+}
+
+.resume-subrow {
+  display: flex;
+  justify-content: space-between;
+  font-size: calc(var(--theme-font-size-base) * 0.92);
+  color: #4b5563;
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+.resume-desc {
+  font-size: calc(var(--theme-font-size-base) * 0.9);
+  color: #4b5563;
+  line-height: var(--theme-line-height);
+  margin-top: 5px;
+  white-space: pre-line; /* 保留换行 */
+}
+
+/* 技能标签列表 */
+.skills-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skill-item {
+  font-size: calc(var(--theme-font-size-base) * 0.9);
+  color: #374151;
+  line-height: var(--theme-line-height);
+}
+
+/* ==========================================================================
+   五、一键完美打印排版样式 (@media print 深度调优)
+   ========================================================================== */
+@media print {
+  /* 隐藏所有非简历的网页控制节点 */
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+  }
+
+  .workspace-container,
+  .editor-panel,
+  .template-panel,
+  .preview-panel-header,
+  .fit-controls-card,
+  ::-webkit-scrollbar,
+  button,
+  .print-hide {
+    display: none !important;
+  }
+
+  .workspace-container {
+    height: auto !important;
+    background: none !important;
+  }
+
+  /* 画布撑满打印页 */
+  .preview-panel {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .a4-container {
+    width: 210mm !important;
+    height: 297mm !important;
+    min-width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    transform: none !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+    overflow: hidden !important;
+  }
+
+  .a4-content {
+    /* 锁定打印边距 */
+    padding: 12mm 15mm !important; 
+    width: 100% !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 解决跨浏览器黑白打印和色彩保真 */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 0 !important; /* 强制去除浏览器默认页眉页脚 */
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "name": "resume-generator",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "electron-main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "electron .",
+    "dist": "npm run build && electron-builder --mac"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "canvas-confetti": "^1.9.4",
+    "lucide-react": "^1.17.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "build": {
+    "appId": "com.antigravity.resume-generator",
+    "productName": "智能简历生成器",
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "iconSize": 100,
+      "contents": [
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        },
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "files": [
+      "dist/**/*",
+      "electron-main.cjs",
+      "preload.js",
+      "package.json"
+    ],
+    "asar": true
+  }
+}
