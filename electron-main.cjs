@@ -81,7 +81,10 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
-  autoUpdater.checkForUpdatesAndNotify();
+  setTimeout(() => {
+    console.log('[AutoUpdate] Checking for updates...');
+    autoUpdater.checkForUpdatesAndNotify();
+  }, 3000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -93,22 +96,27 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.on('check-for-updates', () => {
+  console.log('[AutoUpdate] Manual check triggered');
   autoUpdater.checkForUpdatesAndNotify();
 });
 
 autoUpdater.on('update-available', (info) => {
+  console.log('[AutoUpdate] Update available:', info.version);
   if (mainWindow) mainWindow.webContents.send('update-available', { version: info.version });
 });
 autoUpdater.on('update-not-available', () => {
+  console.log('[AutoUpdate] No updates available');
   if (mainWindow) mainWindow.webContents.send('update-not-available');
 });
 autoUpdater.on('error', (err) => {
+  console.error('[AutoUpdate] Error:', err.message);
   if (mainWindow) mainWindow.webContents.send('update-error', err.message);
 });
 autoUpdater.on('download-progress', (progress) => {
   if (mainWindow) mainWindow.webContents.send('download-progress', progress.percent);
 });
 autoUpdater.on('update-downloaded', (info) => {
+  console.log('[AutoUpdate] Update downloaded:', info.version);
   if (mainWindow) mainWindow.webContents.send('update-downloaded', { version: info.version });
 });
 ipcMain.on('restart-and-update', () => {

@@ -12,6 +12,8 @@ export default function UpdateNotification() {
     });
 
     window.electronAPI.onUpdateNotAvailable(() => {
+      setUpdateState('uptodate');
+      setTimeout(() => setUpdateState(null), 3000);
     });
 
     window.electronAPI.onUpdateError((msg) => {
@@ -56,6 +58,20 @@ export default function UpdateNotification() {
           backdropFilter: 'blur(10px)'
         }}>
           正在检查更新...
+        </div>
+      )}
+
+      {updateState === 'uptodate' && (
+        <div style={{
+          padding: '10px 16px',
+          background: 'rgba(16, 185, 129, 0.2)',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          borderRadius: '8px',
+          color: '#f3f4f6',
+          fontSize: '13px',
+          backdropFilter: 'blur(10px)'
+        }}>
+          当前已是最新版本
         </div>
       )}
 

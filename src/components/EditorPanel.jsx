@@ -14,7 +14,7 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification 
     setIsParsing(true);
     onNotification({ type: 'info', message: '正在解析...' });
     try {
-      const parsed = parseResumeText(aiInput, { apiUrl: '', apiKey: '', modelName: '' });
+      const parsed = await parseResumeText(aiInput, { apiUrl: '', apiKey: '', modelName: '' });
       setResumeData(parsed);
       onNotification({ type: 'success', message: '解析成功，已填入表单' });
       setActiveTab('form');
