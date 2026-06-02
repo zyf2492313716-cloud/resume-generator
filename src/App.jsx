@@ -1,39 +1,31 @@
 import React, { useState } from 'react';
 import confetti from 'canvas-confetti';
-import { 
-  Sparkles, 
-  FileText, 
+import {
+  Sparkles,
+  FileText,
   Settings,
   Bell
 } from 'lucide-react';
 import EditorPanel from './components/EditorPanel';
 import PreviewPanel from './components/PreviewPanel';
 import TemplatePanel from './components/TemplatePanel';
+import UpdateNotification from './components/UpdateNotification';
 import { DEFAULT_RESUME_DATA } from './utils/aiParser';
 
 export default function App() {
-  // 1. 核心状态：结构化简历数据 (双向绑定，数据源)
   const [resumeData, setResumeData] = useState(DEFAULT_RESUME_DATA);
-
-  // 2. 模板与配色状态
   const [selectedTemplate, setSelectedTemplate] = useState('minimalist');
   const [themeColor, setThemeColor] = useState('#1e3a8a');
-
-  // 3. AI 抽取 API 设置状态
   const [aiConfig, setAiConfig] = useState({
     apiUrl: 'https://api.deepseek.com/v1/chat/completions',
     apiKey: '',
     modelName: 'deepseek-chat'
   });
-
-  // 4. 拟真 Toast 通知浮层系统
   const [notification, setNotification] = useState(null);
 
   const showNotification = ({ type, message }) => {
-    // 设置通知并自动在 4 秒后滑出销毁
     setNotification({ type, message });
-    
-    // 如果是解析成功的喜报，触发 Canvas-Confetti 撒花庆祝动效
+
     if (type === 'success' && message.includes('成功')) {
       confetti({
         particleCount: 140,
@@ -50,9 +42,8 @@ export default function App() {
 
   return (
     <div className="workspace-container">
-      {/* 玻璃感 Toast 通知栏 (Print-Hide) */}
       {notification && (
-        <div 
+        <div
           className="print-hide"
           style={{
             position: 'fixed',
@@ -63,15 +54,15 @@ export default function App() {
             padding: '12px 24px',
             borderRadius: '10px',
             backdropFilter: 'blur(20px)',
-            background: notification.type === 'success' 
-              ? 'rgba(16, 185, 129, 0.25)' 
-              : notification.type === 'warning' 
-              ? 'rgba(245, 158, 11, 0.25)' 
+            background: notification.type === 'success'
+              ? 'rgba(16, 185, 129, 0.25)'
+              : notification.type === 'warning'
+              ? 'rgba(245, 158, 11, 0.25)'
               : 'rgba(59, 130, 246, 0.25)',
-            border: notification.type === 'success' 
-              ? '1px solid rgba(16, 185, 129, 0.4)' 
-              : notification.type === 'warning' 
-              ? '1px solid rgba(245, 158, 11, 0.4)' 
+            border: notification.type === 'success'
+              ? '1px solid rgba(16, 185, 129, 0.4)'
+              : notification.type === 'warning'
+              ? '1px solid rgba(245, 158, 11, 0.4)'
               : '1px solid rgba(59, 130, 246, 0.4)',
             boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
             display: 'flex',
@@ -88,10 +79,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ==========================================================================
-          左侧控制面板：AI 录入与结构化经历编辑 (Print-Hide)
-          ========================================================================== */}
-      <EditorPanel 
+      <EditorPanel
         resumeData={resumeData}
         setResumeData={setResumeData}
         aiConfig={aiConfig}
@@ -99,19 +87,13 @@ export default function App() {
         onNotification={showNotification}
       />
 
-      {/* ==========================================================================
-          中间预览面板：A4真实悬浮画布，智能单页自适应缩放算法
-          ========================================================================== */}
-      <PreviewPanel 
+      <PreviewPanel
         resumeData={resumeData}
         selectedTemplate={selectedTemplate}
         themeColor={themeColor}
         onNotification={showNotification}
       />
 
-      {/* ==========================================================================
-          右侧模板面板：模板风格切换与配色板调理 (Print-Hide)
-          ========================================================================== */}
       <TemplatePanel 
         selectedTemplate={selectedTemplate}
         setSelectedTemplate={setSelectedTemplate}
@@ -122,7 +104,8 @@ export default function App() {
         onNotification={showNotification}
       />
 
-      {/* 动画关键帧 CSS 注入 (Print-Hide) */}
+      <UpdateNotification />
+
       <style>{`
         @keyframes slideDown {
           from {
