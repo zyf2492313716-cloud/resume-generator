@@ -17,7 +17,7 @@ from PyQt6.QtCore import QUrl
 from utils.aiParser import parseWithLocalRules, DEFAULT_RESUME_DATA
 from utils.docx_filler import fill_docx_template
 
-CURRENT_VERSION = "v1.0.0"
+CURRENT_VERSION = "v2.0.0"
 
 class NativeResumeApp(QMainWindow):
     def __init__(self):

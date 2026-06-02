@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  getTemplateList: () => ipcRenderer.invoke('get-template-list'),
+  renderPreview: (templateName, resumeData) => ipcRenderer.invoke('render-preview', { templateName, resumeData }),
+
   printToPdf: (fileName) => ipcRenderer.send('print-to-pdf', fileName),
   onPdfSaved: (callback) => ipcRenderer.on('pdf-saved', (event, ...args) => callback(...args)),
   onPdfFailed: (callback) => ipcRenderer.on('pdf-failed', (event, ...args) => callback(...args)),
