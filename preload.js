@@ -2,21 +2,22 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getTemplateList: () => ipcRenderer.invoke('get-template-list'),
+  selectTemplateDir: () => ipcRenderer.invoke('select-template-dir'),
   renderPreview: (templateName, resumeData) => ipcRenderer.invoke('render-preview', { templateName, resumeData }),
 
   printToPdf: (fileName) => ipcRenderer.send('print-to-pdf', fileName),
-  onPdfSaved: (callback) => ipcRenderer.on('pdf-saved', (event, ...args) => callback(...args)),
-  onPdfFailed: (callback) => ipcRenderer.on('pdf-failed', (event, ...args) => callback(...args)),
+  onPdfSaved: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('pdf-saved', h); return () => ipcRenderer.removeListener('pdf-saved', h); },
+  onPdfFailed: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('pdf-failed', h); return () => ipcRenderer.removeListener('pdf-failed', h); },
 
   exportToWord: (templateName, resumeData) => ipcRenderer.send('export-to-word', { templateName, resumeData }),
-  onWordSaved: (callback) => ipcRenderer.on('word-saved', (event, ...args) => callback(...args)),
-  onWordFailed: (callback) => ipcRenderer.on('word-failed', (event, ...args) => callback(...args)),
+  onWordSaved: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('word-saved', h); return () => ipcRenderer.removeListener('word-saved', h); },
+  onWordFailed: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('word-failed', h); return () => ipcRenderer.removeListener('word-failed', h); },
 
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
-  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
-  onUpdateNotAvailable: (callback) => ipcRenderer.on('update-not-available', () => callback()),
-  onUpdateError: (callback) => ipcRenderer.on('update-error', (event, msg) => callback(msg)),
-  onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, percent) => callback(percent)),
-  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
+  onUpdateAvailable: (callback) => { const h = (e, info) => callback(info); ipcRenderer.on('update-available', h); return () => ipcRenderer.removeListener('update-available', h); },
+  onUpdateNotAvailable: (callback) => { const h = () => callback(); ipcRenderer.on('update-not-available', h); return () => ipcRenderer.removeListener('update-not-available', h); },
+  onUpdateError: (callback) => { const h = (e, msg) => callback(msg); ipcRenderer.on('update-error', h); return () => ipcRenderer.removeListener('update-error', h); },
+  onDownloadProgress: (callback) => { const h = (e, p) => callback(p); ipcRenderer.on('download-progress', h); return () => ipcRenderer.removeListener('download-progress', h); },
+  onUpdateDownloaded: (callback) => { const h = (e, info) => callback(info); ipcRenderer.on('update-downloaded', h); return () => ipcRenderer.removeListener('update-downloaded', h); },
   restartAndUpdate: () => ipcRenderer.send('restart-and-update')
 });

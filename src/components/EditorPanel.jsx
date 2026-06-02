@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Sparkles, Plus, Trash2, ArrowUp, ArrowDown,
-  User, Briefcase, GraduationCap, FolderGit, Code, AlertCircle
+  User, Briefcase, GraduationCap, FolderGit, Code
 } from 'lucide-react';
 import { parseResumeText } from '../utils/aiParser';
 

@@ -13,7 +13,8 @@ const STYLE_GROUPS = [
 export default function TemplatePanel({
   templateList,
   selectedTemplate,
-  setSelectedTemplate
+  setSelectedTemplate,
+  onReloadTemplates
 }) {
   const grouped = {};
   templateList.forEach(t => {
@@ -25,53 +26,89 @@ export default function TemplatePanel({
     grouped[group].push(t);
   });
 
+  const handleSelectDir = async () => {
+    if (!window.electronAPI) return;
+    const result = await window.electronAPI.selectTemplateDir();
+    if (result.success && onReloadTemplates) {
+      onReloadTemplates();
+    }
+  };
+
   return (
     <div className="glass-panel template-panel" style={{ color: '#f3f4f6' }}>
       <div style={{
         padding: '16px 18px', borderBottom: '1px solid var(--border-glass)',
         fontSize: '14px', fontWeight: 700, display: 'flex', alignItems: 'center',
-        gap: '8px', background: 'rgba(0,0,0,0.1)'
+        justifyContent: 'space-between', background: 'rgba(0,0,0,0.1)'
       }}>
-        <Layers size={16} style={{ color: 'var(--color-accent)' }} /> 选择模板 ({templateList.length})
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Layers size={16} style={{ color: 'var(--color-accent)' }} /> 选择模板 ({templateList.length})
+        </div>
+        <button onClick={handleSelectDir} title="选择模板文件夹" style={{
+          background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '4px', padding: '3px 8px', cursor: 'pointer',
+          color: 'var(--color-text-muted)', fontSize: '11px', display: 'flex',
+          alignItems: 'center', gap: '4px'
+        }}>
+          <RefreshCw size={11} /> 更换
+        </button>
       </div>
 
       <div style={{
         flex: 1, overflowY: 'auto', padding: '12px',
         display: 'flex', flexDirection: 'column', gap: '12px'
       }}>
-        {Object.entries(grouped).map(([group, templates]) => (
-          <div key={group}>
-            <div style={{
-              fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
-              marginBottom: '6px', paddingLeft: '8px',
-              borderLeft: '2px solid var(--color-accent)'
+        {templateList.length === 0 ? (
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', height: '100%', gap: '12px',
+            color: 'var(--color-text-muted)', fontSize: '13px', textAlign: 'center', padding: '20px'
+          }}>
+            <FileText size={32} style={{ opacity: 0.4 }} />
+            <div>未找到模板文件</div>
+            <button onClick={handleSelectDir} style={{
+              padding: '8px 16px', background: 'rgba(59,130,246,0.15)',
+              border: '1px solid rgba(59,130,246,0.3)', borderRadius: '6px',
+              color: '#93c5fd', cursor: 'pointer', fontSize: '12px', fontWeight: 600
             }}>
-              {group} ({templates.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {templates.map(t => {
-                const isSelected = selectedTemplate?.name === t.name;
-                return (
-                  <div key={t.name}
-                    onClick={() => { setSelectedTemplate(t); }}
-                    style={{
-                      padding: '8px 10px', borderRadius: '6px', cursor: 'pointer',
-                      background: isSelected ? 'rgba(59,130,246,0.15)' : 'transparent',
-                      border: isSelected ? '1px solid var(--color-accent)' : '1px solid transparent',
-                      fontSize: '12px', fontWeight: isSelected ? 600 : 400,
-                      color: isSelected ? '#fff' : 'var(--color-text-muted)',
-                      transition: 'all 0.15s'
-                    }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <FileText size={12} style={{ flexShrink: 0 }} />
-                      <span>{t.displayName}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              选择模板文件夹
+            </button>
           </div>
-        ))}
+        ) : (
+          Object.entries(grouped).map(([group, templates]) => (
+            <div key={group}>
+              <div style={{
+                fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)',
+                marginBottom: '6px', paddingLeft: '8px',
+                borderLeft: '2px solid var(--color-accent)'
+              }}>
+                {group} ({templates.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {templates.map(t => {
+                  const isSelected = selectedTemplate?.name === t.name;
+                  return (
+                    <div key={t.name}
+                      onClick={() => { setSelectedTemplate(t); }}
+                      style={{
+                        padding: '8px 10px', borderRadius: '6px', cursor: 'pointer',
+                        background: isSelected ? 'rgba(59,130,246,0.15)' : 'transparent',
+                        border: isSelected ? '1px solid var(--color-accent)' : '1px solid transparent',
+                        fontSize: '12px', fontWeight: isSelected ? 600 : 400,
+                        color: isSelected ? '#fff' : 'var(--color-text-muted)',
+                        transition: 'all 0.15s'
+                      }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <FileText size={12} style={{ flexShrink: 0 }} />
+                        <span>{t.displayName}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

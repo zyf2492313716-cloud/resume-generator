@@ -5,23 +5,47 @@ const { execSync, exec } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const mammoth = require('mammoth');
 
-const TEMPLATES_DIR = '/Users/zhouyufeng/Downloads/1 单页简历';
+const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const FILLER_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'utils', 'docx_filler_v2.py')
   : path.join(__dirname, 'src/utils/docx_filler_v2.py');
+
+function loadConfig() {
+  try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')); } catch (e) { return {}; }
+}
+function saveConfig(cfg) {
+  try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf-8'); } catch (e) {}
+}
+
+function getTemplatesDir() {
+  const cfg = loadConfig();
+  if (cfg.templatesDir && fs.existsSync(cfg.templatesDir)) return cfg.templatesDir;
+  // Auto-detect common locations
+  const candidates = [
+    path.join(app.getPath('home'), 'Downloads', '1 单页简历'),
+    path.join(app.getPath('home'), 'Downloads', '单页简历'),
+    path.join(app.getPath('desktop'), '1 单页简历'),
+    path.join(__dirname, 'templates'),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) { saveConfig({ ...cfg, templatesDir: dir }); return dir; }
+  }
+  return null;
+}
 
 let mainWindow = null;
 
 function scanTemplates() {
   try {
-    if (!fs.existsSync(TEMPLATES_DIR)) return [];
-    const files = fs.readdirSync(TEMPLATES_DIR)
+    const dir = getTemplatesDir();
+    if (!dir || !fs.existsSync(dir)) return [];
+    const files = fs.readdirSync(dir)
       .filter(f => f.endsWith('.docx') && !f.startsWith('.'))
       .sort();
     return files.map(name => ({
       name,
       displayName: name.replace('.docx', ''),
-      path: path.join(TEMPLATES_DIR, name)
+      path: path.join(dir, name)
     }));
   } catch (e) {
     console.error('Scan templates error:', e);
@@ -37,6 +61,10 @@ function fillDocx(templatePath, resumeData, outputPath) {
       `python3 "${FILLER_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"`,
       { encoding: 'utf-8', timeout: 30000 }
     );
+    if (!fs.existsSync(outputPath)) {
+      console.error('Fill docx: output file not created');
+      return false;
+    }
     return true;
   } catch (err) {
     console.error('Fill docx error:', err.message);
@@ -129,6 +157,20 @@ ipcMain.handle('get-template-list', async () => {
   return scanTemplates();
 });
 
+ipcMain.handle('select-template-dir', async () => {
+  if (!mainWindow) return { success: false };
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: '选择简历模板文件夹',
+    properties: ['openDirectory'],
+    defaultPath: getTemplatesDir() || app.getPath('downloads')
+  });
+  if (canceled || !filePaths[0]) return { success: false };
+  const cfg = loadConfig();
+  cfg.templatesDir = filePaths[0];
+  saveConfig(cfg);
+  return { success: true, count: scanTemplates().length };
+});
+
 ipcMain.handle('render-preview', async (event, { templateName, resumeData }) => {
   const template = scanTemplates().find(t => t.name === templateName);
   if (!template) return { success: false, error: '模板未找到' };
@@ -198,7 +240,8 @@ ipcMain.on('print-to-pdf', async (event, defaultFileName) => {
   }
   try {
     const pdfData = await mainWindow.webContents.printToPDF({
-      marginsType: 1, pageSize: 'A4', printBackground: true, landscape: false, displayHeaderFooter: false
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      pageSize: 'A4', printBackground: true, landscape: false, displayHeaderFooter: false
     });
     fs.writeFile(filePath, pdfData, (err) => {
       if (err) { event.reply('pdf-failed', 'PDF 写入失败'); return; }

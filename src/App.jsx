@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
-import { Bell, RefreshCw } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import EditorPanel from './components/EditorPanel';
 import PreviewPanel from './components/PreviewPanel';
 import TemplatePanel from './components/TemplatePanel';
@@ -16,15 +16,19 @@ export default function App() {
   const [notification, setNotification] = useState(null);
   const previewTimerRef = React.useRef(null);
 
-  useEffect(() => {
+  const loadTemplates = useCallback(() => {
     if (window.electronAPI) {
       window.electronAPI.getTemplateList().then(list => {
         setTemplateList(list);
-        if (list.length > 0) {
+        if (list.length > 0 && !selectedTemplate) {
           setSelectedTemplate(list[0]);
         }
       });
     }
+  }, [selectedTemplate]);
+
+  useEffect(() => {
+    loadTemplates();
   }, []);
 
   useEffect(() => {
@@ -39,7 +43,7 @@ export default function App() {
             setPreviewHtml(result.html);
           } else {
             console.error('Preview error:', result.error);
-            onNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
+            showNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
           }
           setPreviewLoading(false);
         });
@@ -50,13 +54,13 @@ export default function App() {
     };
   }, [resumeData, selectedTemplate]);
 
-  const showNotification = ({ type, message }) => {
+  const showNotification = useCallback(({ type, message }) => {
     setNotification({ type, message });
     if (type === 'success' && message.includes('成功')) {
       confetti({ particleCount: 140, spread: 80, origin: { y: 0.6 } });
     }
     setTimeout(() => setNotification(null), 4500);
-  };
+  }, []);
 
   return (
     <div className="workspace-container">
@@ -95,6 +99,7 @@ export default function App() {
         templateList={templateList}
         selectedTemplate={selectedTemplate}
         setSelectedTemplate={setSelectedTemplate}
+        onReloadTemplates={loadTemplates}
       />
 
       <UpdateNotification />

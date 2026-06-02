@@ -13,22 +13,14 @@ export default function PreviewPanel({
   useEffect(() => {
     if (!window.electronAPI) return;
 
-    const handleWordSaved = (msg) => onNotification({ type: 'success', message: msg });
-    const handleWordFailed = (msg) => onNotification({ type: 'warning', message: msg });
-    const handlePdfSaved = (msg) => onNotification({ type: 'success', message: msg });
-    const handlePdfFailed = (msg) => onNotification({ type: 'warning', message: msg });
+    const cleanups = [
+      window.electronAPI.onWordSaved((msg) => onNotification({ type: 'success', message: msg })),
+      window.electronAPI.onWordFailed((msg) => onNotification({ type: 'warning', message: msg })),
+      window.electronAPI.onPdfSaved((msg) => onNotification({ type: 'success', message: msg })),
+      window.electronAPI.onPdfFailed((msg) => onNotification({ type: 'warning', message: msg })),
+    ];
 
-    window.electronAPI.onWordSaved(handleWordSaved);
-    window.electronAPI.onWordFailed(handleWordFailed);
-    window.electronAPI.onPdfSaved(handlePdfSaved);
-    window.electronAPI.onPdfFailed(handlePdfFailed);
-
-    return () => {
-      window.electronAPI.onWordSaved(() => {});
-      window.electronAPI.onWordFailed(() => {});
-      window.electronAPI.onPdfSaved(() => {});
-      window.electronAPI.onPdfFailed(() => {});
-    };
+    return () => cleanups.forEach(fn => fn());
   }, [onNotification]);
 
   const handlePrint = () => {

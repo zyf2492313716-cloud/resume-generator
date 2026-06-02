@@ -7,27 +7,21 @@ export default function UpdateNotification() {
   useEffect(() => {
     if (!window.electronAPI) return;
 
-    window.electronAPI.onUpdateAvailable((info) => {
-      setUpdateState('available');
-    });
+    const cleanups = [
+      window.electronAPI.onUpdateAvailable(() => setUpdateState('available')),
+      window.electronAPI.onUpdateNotAvailable(() => {
+        setUpdateState('uptodate');
+        setTimeout(() => setUpdateState(null), 3000);
+      }),
+      window.electronAPI.onUpdateError(() => setUpdateState('error')),
+      window.electronAPI.onDownloadProgress((percent) => {
+        setUpdateState('downloading');
+        setProgress(percent);
+      }),
+      window.electronAPI.onUpdateDownloaded(() => setUpdateState('downloaded')),
+    ];
 
-    window.electronAPI.onUpdateNotAvailable(() => {
-      setUpdateState('uptodate');
-      setTimeout(() => setUpdateState(null), 3000);
-    });
-
-    window.electronAPI.onUpdateError((msg) => {
-      setUpdateState('error');
-    });
-
-    window.electronAPI.onDownloadProgress((percent) => {
-      setUpdateState('downloading');
-      setProgress(percent);
-    });
-
-    window.electronAPI.onUpdateDownloaded((info) => {
-      setUpdateState('downloaded');
-    });
+    return () => cleanups.forEach(fn => fn());
   }, []);
 
   const handleCheckUpdate = () => {
