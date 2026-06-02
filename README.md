@@ -1,88 +1,71 @@
 # 智能简历生成器
 
-基于 `~/Downloads/1 单页简历/` 目录下的 Word 模板，将 AI 生成的简历文稿自动套模板、预览效果，并确保内容控制在一页内的 macOS 桌面应用。
+真实 Word 模板渲染，一键生成精美求职简历。
+
+## Mac 安装说明
+
+### 1. 下载 DMG
+从 [GitHub Releases](https://github.com/zyf2492313716-cloud/resume-generator/releases) 下载最新版本的 `.dmg` 文件。
+
+### 2. 打开 DMG
+双击下载的 `.dmg` 文件，会弹出一个安装窗口。
+
+### 3. 拖拽安装
+将左侧的 **智能简历生成器.app** 图标拖拽到右侧的 **Applications** 文件夹图标上。
+
+### 4. 首次启动
+由于应用未经过 Apple 官方签名，首次打开时可能会看到安全提示。
+
+**解决方法：**
+- 打开 **系统设置** → **隐私与安全性**
+- 在页面底部找到 "已阻止使用智能简历生成器" 的提示
+- 点击 **仍要打开**
+- 或者：在 Applications 文件夹中右键点击应用图标，选择 **打开**
+
+### 5. 开始使用
+打开应用后，在左侧面板编辑简历信息，右侧面板选择模板，中间区域实时预览效果。点击「导出 Word」即可生成可编辑的 `.docx` 文件。
+
+## 功能特性
+
+- **104 套真实 Word 模板**：涵盖极简、稳重、简约、活泼、文艺、知页等多种风格
+- **所见即所得预览**：基于 mammoth.js 的高保真 HTML 预览，真实还原 Word 排版
+- **AI 智能提取**：粘贴简历文本，自动解析并填入表单
+- **一键导出**：导出完整可编辑的 Word 文档，保留原始模板样式
+- **自动更新**：内置更新检测，一键获取最新版本
+
+## 系统要求
+
+- macOS 12.0 或更高版本
+- Apple Silicon (M1/M2/M3) 或 Intel Mac
+
+## 常见问题
+
+**Q: 提示 "无法打开，因为 Apple 无法检查其是否包含恶意软件"**
+A: 这是 macOS 的安全机制。请按照上文「首次启动」部分的步骤操作。
+
+**Q: 提示 "应用程序已损坏"**
+A: 请在终端中执行以下命令：
+```bash
+xattr -cr /Applications/智能简历生成器.app
+```
+
+**Q: 模板列表为空**
+A: 应用会自动扫描 `~/Downloads/1 单页简历/` 目录下的 `.docx` 模板文件。请确保模板文件已下载到该目录。
 
 ## 技术栈
 
-- **Electron 桌面端**: electron-main.cjs + React 19 前端
-- **PyQt6 原生版**: app.py，纯 Python 离线桌面应用
-- **构建工具**: Vite 5 (前端), electron-builder (DMG), PyInstaller (原生版)
-- **Word 模板引擎**: python-docx (OpenXML 节点克隆填充)
+- Electron + React + Vite
+- Python 3 (标准库，无需额外依赖)
+- mammoth.js (Word 转 HTML 预览)
 
-## 版本
-
-项目包含两个版本，代码在同一个仓库中：
-
-| 版本 | 入口 | 构建方式 | 产物路径 |
-|------|------|----------|----------|
-| Electron 版 | electron-main.cjs | `npm run dist` | dist-desktop/*.dmg |
-| PyQt6 原生版 | app.py | PyInstaller | dist-desktop/mac-native/*.dmg |
-
-## 快速启动
+## 开发
 
 ```bash
-# Electron 版开发模式
-cd resume-generator
 npm install
-npm run dev
-
-# PyQt6 原生版
-python3 app.py
+npm run dev        # 开发模式
+npm run dist       # 构建 DMG
 ```
 
-## 打包
+## License
 
-```bash
-# Electron DMG
-cd resume-generator
-npm run dist
-
-# PyQt6 原生 DMG
-cd resume-generator
-pyinstaller --noconfirm --windowed --name="智能简历生成器" --clean app.py
-hdiutil create -fs HFS+ -srcfolder "dist/智能简历生成器.app" -volname "智能简历生成器安装盘" "dist-desktop/mac-native/智能简历生成器-原生版.dmg"
-```
-
-或双击工作区根目录的 `.command` 文件一键打包。
-
-## 功能
-
-- AI 智能简历解析（支持 LLM API 和本地规则备用解析器）
-- 5 套预览模板（极简、稳重、简约、活泼、文艺）
-- 4 色调色盘
-- 智能单页自适应算法（自动收缩/扩展字号、行高、间距）
-- PDF 一键导出
-- Word 套模板导出（基于本地 docx 模板的 OpenXML 克隆填充）
-- GitHub Releases 自动更新
-
-## 自动更新
-
-Electron 版使用 `electron-updater`，从 GitHub Releases 自动检测并下载更新。
-PyQt6 原生版内置 GitHub API 检查更新逻辑。
-
-## 项目结构
-
-```
-resume-generator/
-├── app.py                    # PyQt6 原生桌面应用
-├── electron-main.cjs         # Electron 主进程
-├── preload.js                # Electron preload 桥接
-├── package.json              # 前端依赖和构建脚本
-├── vite.config.js            # Vite 配置
-├── index.html                # Vite 入口
-├── src/
-│   ├── App.jsx               # 主 React 组件
-│   ├── main.jsx              # React 入口
-│   ├── index.css             # 设计系统样式
-│   ├── components/           # React 组件
-│   │   ├── EditorPanel.jsx
-│   │   ├── PreviewPanel.jsx
-│   │   ├── TemplatePanel.jsx
-│   │   ├── ResumeTemplates.jsx
-│   │   └── UpdateNotification.jsx
-│   └── utils/
-│       ├── aiParser.js       # AI 简历解析引擎
-│       └── docx_filler.py    # Word 模板填充引擎
-├── dist/                     # PyInstaller 构建产物
-└── dist-desktop/             # electron-builder 构建产物
-```
+MIT

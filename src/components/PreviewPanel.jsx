@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Printer, FileText, Loader, AlertTriangle } from 'lucide-react';
 
 export default function PreviewPanel({
@@ -9,6 +9,27 @@ export default function PreviewPanel({
   resumeData
 }) {
   const [canvasScale, setCanvasScale] = useState(0.7);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const handleWordSaved = (msg) => onNotification({ type: 'success', message: msg });
+    const handleWordFailed = (msg) => onNotification({ type: 'warning', message: msg });
+    const handlePdfSaved = (msg) => onNotification({ type: 'success', message: msg });
+    const handlePdfFailed = (msg) => onNotification({ type: 'warning', message: msg });
+
+    window.electronAPI.onWordSaved(handleWordSaved);
+    window.electronAPI.onWordFailed(handleWordFailed);
+    window.electronAPI.onPdfSaved(handlePdfSaved);
+    window.electronAPI.onPdfFailed(handlePdfFailed);
+
+    return () => {
+      window.electronAPI.onWordSaved(() => {});
+      window.electronAPI.onWordFailed(() => {});
+      window.electronAPI.onPdfSaved(() => {});
+      window.electronAPI.onPdfFailed(() => {});
+    };
+  }, [onNotification]);
 
   const handlePrint = () => {
     const defaultName = `${resumeData.basicInfo.name || '我的'}_求职简历.pdf`;

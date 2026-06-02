@@ -39,6 +39,7 @@ export default function App() {
             setPreviewHtml(result.html);
           } else {
             console.error('Preview error:', result.error);
+            onNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
           }
           setPreviewLoading(false);
         });

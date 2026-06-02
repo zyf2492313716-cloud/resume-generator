@@ -31,6 +31,7 @@
     "directories": {
       "output": "dist-desktop"
     },
+    "afterSign": "scripts/afterSign.cjs",
     "mac": {
       "target": [
         "dmg"
@@ -47,7 +48,6 @@
     "dmg": {
       "iconSize": 120,
       "iconTextSize": 14,
-      "background": "build/background.png",
       "title": "智能简历生成器安装盘",
       "contents": [
         {

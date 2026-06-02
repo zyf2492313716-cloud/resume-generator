@@ -3,8 +3,8 @@ import os
 import json
 import re
 import zipfile
-import shutil
-import tempfile
+import io
+import xml.etree.ElementTree as ET
 
 def fill_template(template_path, data, output_path):
     with zipfile.ZipFile(template_path, 'r') as zin:
@@ -16,12 +16,10 @@ def fill_template(template_path, data, output_path):
     projs = data.get('projects', [])
     skills = data.get('skills', [])
 
-    import lxml.etree as ET
     root = ET.fromstring(doc_xml.encode('utf-8'))
     NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-    nsmap = {'w': NS}
 
-    all_t_elements = root.findall(f'.//{{{NS}}}_t') or root.findall(f'.//{{{NS}}}t')
+    parent_map = {c: p for p in root.iter() for c in p}
 
     text_nodes = []
     for t_elem in root.iter(f'{{{NS}}}t'):
@@ -32,18 +30,6 @@ def fill_template(template_path, data, output_path):
 
     def set_node_text(n, val):
         n.text = val
-
-    def should_skip_style_prefix(t):
-        p = t.getparent() if hasattr(t, 'getparent') else None
-        if p is not None:
-            rpr = p.find(f'{{{NS}}}rPr')
-            if rpr is not None:
-                rfonts = rpr.find(f'{{{NS}}}rFonts')
-                if rfonts is not None:
-                    ascii_attr = rfonts.get(f'{{{NS}}}ascii', '')
-                    if ascii_attr and ascii_attr != '' and '宋体' in ascii_attr:
-                        pass
-        return False
 
     text_entries = []
     for t in text_nodes:
@@ -241,26 +227,17 @@ def fill_template(template_path, data, output_path):
 
     modified_xml = ET.tostring(root, encoding='unicode')
 
-    temp_dir = tempfile.mkdtemp()
-    temp_output = os.path.join(temp_dir, 'filled.docx')
-    try:
-        shutil.copy2(template_path, temp_output)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(template_path, 'r') as zin:
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data_in = zin.read(item.filename)
+                if item.filename == 'word/document.xml':
+                    data_in = modified_xml.encode('utf-8')
+                zout.writestr(item, data_in)
 
-        import zipfile as zf_out
-        import io
-        buffer = io.BytesIO()
-        with zf_out.ZipFile(template_path, 'r') as zin:
-            with zf_out.ZipFile(buffer, 'w', zf_out.ZIP_DEFLATED) as zout:
-                for item in zin.infolist():
-                    data_in = zin.read(item.filename)
-                    if item.filename == 'word/document.xml':
-                        data_in = modified_xml.encode('utf-8')
-                    zout.writestr(item, data_in)
-
-        with open(output_path, 'wb') as f:
-            f.write(buffer.getvalue())
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    with open(output_path, 'wb') as f:
+        f.write(buffer.getvalue())
 
     print(f"已填充模板: {output_path}")
     return True

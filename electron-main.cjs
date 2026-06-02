@@ -6,7 +6,9 @@ const { autoUpdater } = require('electron-updater');
 const mammoth = require('mammoth');
 
 const TEMPLATES_DIR = '/Users/zhouyufeng/Downloads/1 单页简历';
-const FILLER_SCRIPT = path.join(__dirname, 'src/utils/docx_filler_v2.py');
+const FILLER_SCRIPT = app.isPackaged
+  ? path.join(process.resourcesPath, 'utils', 'docx_filler_v2.py')
+  : path.join(__dirname, 'src/utils/docx_filler_v2.py');
 
 let mainWindow = null;
 
