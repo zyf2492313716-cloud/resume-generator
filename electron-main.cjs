@@ -227,7 +227,7 @@ ipcMain.on('export-to-word', async (event, { templateName, resumeData }) => {
   });
 });
 
-ipcMain.on('print-to-pdf', async (event, defaultFileName) => {
+ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resumeData }) => {
   if (!mainWindow) return;
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: '导出 PDF',
@@ -239,15 +239,57 @@ ipcMain.on('print-to-pdf', async (event, defaultFileName) => {
     return;
   }
   try {
-    const pdfData = await mainWindow.webContents.printToPDF({
+    // Find template and fill it
+    let html = '';
+    if (templateName && resumeData) {
+      const template = scanTemplates().find(t => t.name === templateName);
+      if (template) {
+        const tempDir = app.getPath('temp');
+        const tempDocx = path.join(tempDir, `pdf_${Date.now()}.docx`);
+        const filled = fillDocx(template.path, resumeData, tempDocx);
+        if (filled) {
+          const result = await mammoth.convertToHtml({ path: tempDocx });
+          html = result.value;
+          try { fs.unlinkSync(tempDocx); } catch (e) {}
+        }
+      }
+    }
+    if (!html) {
+      // Fallback: capture main window content
+      html = '<p>简历内容</p>';
+    }
+
+    // Create HTML document with proper print styling
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
+      <style>
+        @page { margin: 0; size: A4; }
+        body { margin: 0; padding: 40px; font-family: SimSun, serif; }
+        table { border-collapse: collapse; width: 100%; }
+        img { max-width: 100%; }
+      </style></head><body>${html}</body></html>`;
+
+    const tempHtml = path.join(app.getPath('temp'), `pdf_${Date.now()}.html`);
+    fs.writeFileSync(tempHtml, fullHtml, 'utf-8');
+
+    // Create hidden window and print to PDF
+    const pdfWindow = new BrowserWindow({
+      width: 794, height: 1123, show: false, webPreferences: { contextIsolation: false }
+    });
+    await pdfWindow.loadFile(tempHtml);
+    const pdfData = await pdfWindow.webContents.printToPDF({
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
       pageSize: 'A4', printBackground: true, landscape: false, displayHeaderFooter: false
     });
+    pdfWindow.close();
+
+    try { fs.unlinkSync(tempHtml); } catch (e) {}
+
     fs.writeFile(filePath, pdfData, (err) => {
       if (err) { event.reply('pdf-failed', 'PDF 写入失败'); return; }
       event.reply('pdf-saved', `PDF 已导出: ${path.basename(filePath)}`);
     });
   } catch (e) {
-    event.reply('pdf-failed', 'PDF 生成失败');
+    console.error('PDF error:', e);
+    event.reply('pdf-failed', 'PDF 生成失败: ' + e.message);
   }
 });

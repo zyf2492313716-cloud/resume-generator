@@ -26,8 +26,8 @@ export default function PreviewPanel({
   const handlePrint = () => {
     const defaultName = `${resumeData.basicInfo.name || '我的'}_求职简历.pdf`;
     if (window.electronAPI) {
-      onNotification({ type: 'info', message: '正在打开存盘面板...' });
-      window.electronAPI.printToPdf(defaultName);
+      onNotification({ type: 'info', message: '正在生成 PDF...' });
+      window.electronAPI.printToPdf(defaultName, templateName, resumeData);
     } else {
       onNotification({ type: 'success', message: '正在启动打印...' });
       setTimeout(() => window.print(), 500);

@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 
 
 def fill_template(template_path, data, output_path):
-    """Read docx template, replace placeholder text with user data, write output."""
     with zipfile.ZipFile(template_path, 'r') as zin:
         doc_xml = zin.read('word/document.xml').decode('utf-8')
 
@@ -21,126 +20,157 @@ def fill_template(template_path, data, output_path):
     root = ET.fromstring(doc_xml.encode('utf-8'))
     NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
-    def get_all_texts(r):
-        return [t for t in r.iter(f'{{{NS}}}t') if t.text]
-
-    # Known placeholder names used across templates
-    PLACEHOLDER_NAMES = [
-        '宋艾嘉', '肖颖馨', '韩志弘', '李自强', '张三', '李四', '王五',
-        '赵六', '孙七', '周八', '吴九', '郑十', '陈小明', '刘小红',
-    ]
-
-    # Known placeholder values
-    PLACEHOLDER_PHONES = [
-        '012301230123', '12345678901', '13800138000', '15912345678',
-        '18888888888', '13666666666', '15012345678', '13123456789',
-    ]
-    PLACEHOLDER_EMAILS = [
-        '1906222627@qq.com', 'example@email.com', 'your@email.com',
-        'test@example.com', 'resume@email.com', 'name@example.com',
-    ]
-
     name = basic.get('name', '')
     phone = basic.get('phone', '')
     email = basic.get('email', '')
     wechat = basic.get('wechat', '')
     title = basic.get('title', '')
-    github = basic.get('github', '')
     summary = basic.get('summary', '')
     address = basic.get('address', '')
+    github = basic.get('github', '')
 
-    # --- Pass 1: Replace known placeholder names ---
-    if name:
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if txt in PLACEHOLDER_NAMES:
-                t.text = name
+    # Collect all text nodes with paragraph context
+    paragraphs = list(root.iter(f'{{{NS}}}p'))
+    para_texts = []
 
-    # --- Pass 2: Replace placeholder phone numbers ---
-    if phone:
-        clean_phone = re.sub(r'[\s\-\(\)]', '', phone)
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            # Match known placeholder phones
-            if txt in PLACEHOLDER_PHONES:
-                t.text = clean_phone
-            # Match generic phone patterns (7-15 digits, possibly with separators)
-            elif re.match(r'^[\d\s\-\(\)]{7,15}$', txt) and len(re.sub(r'\D', '', txt)) >= 7:
-                t.text = clean_phone
+    for pi, p in enumerate(paragraphs):
+        for t in p.iter(f'{{{NS}}}t'):
+            txt = (t.text or '').strip()
+            if txt:
+                para_texts.append((pi, t, txt))
 
-    # --- Pass 3: Replace placeholder emails ---
-    if email:
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if txt in PLACEHOLDER_EMAILS:
-                t.text = email
-            elif re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', txt):
-                t.text = email
+    # Label matching: check if text contains a label as prefix (colon-separated)
+    LABEL_PREFIXES = {
+        '姓名': 'name', '名字': 'name',
+        '手机': 'phone', '电话': 'phone',
+        '邮箱': 'email', 'Email': 'email', 'E-mail': 'email',
+        '微信': 'wechat', 'WeChat': 'wechat',
+        '地址': 'address',
+        '求职意向': 'title', '目标职位': 'title', '应聘职位': 'title',
+        '个人总结': 'summary', '自我评价': 'summary', '个人简介': 'summary',
+    }
 
-    # --- Pass 4: Replace title/position ---
-    if title:
-        title_placeholders = [
-            '平面设计', '网页设计师', '市场拓展/策划专员', 'UI设计师',
-            '产品经理', '软件工程师', '前端工程师', '后端工程师',
-        ]
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if txt in title_placeholders:
-                t.text = title
+    USER_FIELDS = {
+        'name': name, 'phone': phone, 'email': email,
+        'wechat': wechat, 'title': title, 'summary': summary, 'address': address,
+    }
 
-    # --- Pass 5: Replace wechat ---
-    if wechat:
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if txt.startswith('微信') or txt.startswith('WeChat'):
-                t.text = f'微信: {wechat}'
+    def set_node_text(node, val):
+        node.text = val
 
-    # --- Pass 6: Replace summary/description blocks ---
-    if summary:
-        summary_placeholders = [
-            '有扎实的美术基础和审美眼光', '负责辖区智能家居产品',
-            '项目进行期', '工作描述', '负责项目的推广',
-            '在这里输入你的个人简介', '请输入自我评价',
-        ]
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if len(txt) > 10:
-                for ph in summary_placeholders:
-                    if ph in txt:
-                        t.text = summary
+    # --- Pass 1: Label+value in same text node (colon-separated) ---
+    for pi, t_node, txt in para_texts:
+        for prefix, field in LABEL_PREFIXES.items():
+            val = USER_FIELDS.get(field)
+            if not val:
+                continue
+            if txt.startswith(prefix) and ('：' in txt or ':' in txt):
+                # Extract the value part after colon
+                parts = re.split(r'[：:]', txt, maxsplit=1)
+                if len(parts) >= 2:
+                    # Replace the entire text with new label+value
+                    separator = txt[len(prefix)] if len(txt) > len(prefix) else '：'
+                    # Try to preserve format
+                    new_txt = f'{prefix}{separator}{val}'
+                    set_node_text(t_node, new_txt)
+                    break
+
+    # --- Pass 2: Label+value in adjacent text nodes ---
+    for i, (pi, t_node, txt) in enumerate(para_texts):
+        for label_text, field in LABEL_PREFIXES.items():
+            val = USER_FIELDS.get(field)
+            if not val:
+                continue
+            if txt == label_text:
+                # Look forward in same paragraph for the value
+                for j in range(i + 1, len(para_texts)):
+                    nj, next_node, next_txt = para_texts[j]
+                    if nj != pi:
+                        break
+                    # Check this isn't another label
+                    is_other_label = any(
+                        next_txt.startswith(lp) for lp in LABEL_PREFIXES
+                    )
+                    if is_other_label:
+                        continue
+                    if next_txt and len(next_txt) < 80:
+                        set_node_text(next_node, val)
                         break
 
-    # --- Pass 7: Replace address ---
-    if address:
-        addr_placeholders = ['421 街道名字', '街道名字', '请输入地址']
-        for t in get_all_texts(root):
-            txt = t.text.strip()
-            if txt in addr_placeholders:
-                t.text = address
+    # --- Pass 3: Known placeholder names ---
+    if name:
+        KNOWN_NAMES = [
+            '宋艾嘉', '肖颖馨', '韩志弘', '李自强', '张三', '李四', '王五',
+            '赵六', '关睢尔', '陈小明', '刘小红', '周洁', '吴芳',
+        ]
+        for pi, t_node, txt in para_texts:
+            if txt in KNOWN_NAMES:
+                set_node_text(t_node, name)
 
-    # --- Pass 8: Fill education section ---
-    if edus:
-        _fill_section(root, NS, ['教育背景', '教育', '修业背景'], edus,
-                      [('school', ['大学', '学院', '学校']),
-                       ('major', ['专业', '学科']),
-                       ('degree', ['本科', '硕士', '博士', '学士', '专科']),
-                       ('time', ['2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'])])
+    # --- Pass 4: Known placeholder titles ---
+    if title:
+        KNOWN_TITLES = [
+            '平面设计', '网页设计师', '市场拓展/策划专员', 'UI设计师',
+            '产品经理', '软件工程师', '前端工程师', '后端工程师',
+            '销售员岗位', '市场专员', '销售专员',
+        ]
+        for pi, t_node, txt in para_texts:
+            if txt in KNOWN_TITLES:
+                set_node_text(t_node, title)
 
-    # --- Pass 9: Fill experience section ---
-    if exps:
-        _fill_section(root, NS, ['工作经历', '工作', '实习经历', '生平履历'], exps,
-                      [('company', ['公司', '科技', '企业', '集团', '网络', '有限', '工作室']),
-                       ('position', ['职位', '岗位', '职务']),
-                       ('time', ['2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'])])
+    # --- Pass 5: Standalone phone numbers ---
+    if phone:
+        clean_phone = re.sub(r'[\s\-\(\)]', '', phone)
+        for pi, t_node, txt in para_texts:
+            # Check: text is purely digits with optional separators, 7-16 chars
+            txt_clean = re.sub(r'[\s\-\(\)]', '', txt)
+            if re.match(r'^\d{7,16}$', txt_clean) and txt_clean != clean_phone:
+                # Make sure it's not already replaced (part of a label+value pair)
+                is_already_replaced = False
+                for j in range(max(0, i - 2), i):
+                    if j < len(para_texts):
+                        pj, _, pj_txt = para_texts[j]
+                        if pj == pi and any(
+                            pj_txt.startswith(lp) for lp in LABEL_PREFIXES
+                        ):
+                            is_already_replaced = True
+                            break
+                if not is_already_replaced:
+                    set_node_text(t_node, clean_phone)
 
-    # --- Pass 10: Fill project section ---
-    if projs:
-        _fill_section(root, NS, ['项目经验', '项目', '专研项目'], projs,
-                      [('name', ['项目', '系统', '平台', 'APP', '网站']),
-                       ('role', ['角色', '职责', '负责人']),
-                       ('time', ['2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026'])])
+    # --- Pass 6: Standalone emails ---
+    if email:
+        email_pat = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+        for pi, t_node, txt in para_texts:
+            if email_pat.match(txt) and txt != email:
+                set_node_text(t_node, email)
 
-    # Serialize and write output
+    # --- Pass 7: Summary/description blocks ---
+    if summary:
+        SUMMARY_PLACEHOLDERS = [
+            '有扎实的美术基础和审美眼光', '负责辖区智能家居产品',
+            '项目进行期', '工作描述', '负责项目的推广',
+            '良好的公共关系意识', '介绍大学学习阶段',
+            '良好的心态和责任感',
+        ]
+        for pi, t_node, txt in para_texts:
+            if len(txt) > 15:
+                for ph in SUMMARY_PLACEHOLDERS:
+                    if ph in txt:
+                        set_node_text(t_node, summary)
+                        break
+
+    # --- Pass 8: Section fill (education/experience) ---
+    _fill_section_nodes(para_texts, edus, {
+        'school': ['学校', '大学', '学院', 'School'],
+        'major': ['专业', 'Major'],
+        'degree': ['本科', '硕士', '博士', '学士', '专科', '学历', 'Degree'],
+    })
+    _fill_section_nodes(para_texts, exps, {
+        'company': ['公司', '科技', '企业', '集团', '网络', '有限', '工作室', 'Company'],
+    })
+
+    # Serialize
     modified_xml = ET.tostring(root, encoding='unicode')
 
     buffer = io.BytesIO()
@@ -159,53 +189,31 @@ def fill_template(template_path, data, output_path):
     return True
 
 
-def _fill_section(root, ns, section_keywords, data_array, field_config):
-    """Fill a section (education/experience/projects) with data from array."""
-    text_nodes = [t for t in root.iter(f'{{{ns}}}t') if t.text]
-
-    # Find section start indices
-    section_starts = []
-    for i, t in enumerate(text_nodes):
-        txt = t.text.strip()
-        for kw in section_keywords:
-            if txt == kw or (len(txt) <= len(kw) + 4 and kw in txt):
-                section_starts.append(i)
-                break
-
-    if not section_starts:
-        return
-
-    # Find section boundaries (next section header = boundary)
-    all_section_kws = ['教育背景', '工作经历', '项目经验', '专业技能', '自我评价',
-                       '联系方式', '个人信息', '实习经历', '荣誉奖项', '技能特长']
-
-    for data_idx, item in enumerate(data_array):
-        if data_idx >= len(section_starts):
-            break
-
-        start = section_starts[data_idx]
-        end = len(text_nodes)
-
-        # Find the end of this section
-        for i in range(start + 1, len(text_nodes)):
-            txt = text_nodes[i].text.strip()
-            for kw in all_section_kws:
-                if txt == kw and i not in section_starts:
-                    end = i
-                    break
-            if end != len(text_nodes):
-                break
-
-        # For each field in the data item, find a matching placeholder in the section
-        for field_key, keywords in field_config:
-            val = item.get(field_key, '')
+def _fill_section_nodes(para_texts, data_array, field_keywords):
+    """Fill section data by finding labels and replacing adjacent/same-node values."""
+    for item in data_array:
+        for field, keywords in field_keywords.items():
+            val = item.get(field, '')
             if not val:
                 continue
-            for i in range(start + 1, end):
-                txt = text_nodes[i].text.strip()
-                if any(kw in txt for kw in keywords) and len(txt) > 1:
-                    text_nodes[i].text = val
-                    break
+            for i, (pi, t_node, txt) in enumerate(para_texts):
+                for kw in keywords:
+                    # Check same-node: "学校：XXX" pattern
+                    if txt.startswith(kw) and ('：' in txt or ':' in txt):
+                        parts = re.split(r'[：:]', txt, maxsplit=1)
+                        if len(parts) == 2:
+                            separator = txt[len(kw)]
+                            t_node.text = f'{kw}{separator}{val}'
+                            break
+                    # Check adjacent: "学校"→"XXX"
+                    if txt == kw:
+                        for j in range(i + 1, len(para_texts)):
+                            nj, next_node, next_txt = para_texts[j]
+                            if nj != pi:
+                                break
+                            if next_txt and len(next_txt) < 80:
+                                next_node.text = val
+                                break
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectTemplateDir: () => ipcRenderer.invoke('select-template-dir'),
   renderPreview: (templateName, resumeData) => ipcRenderer.invoke('render-preview', { templateName, resumeData }),
 
-  printToPdf: (fileName) => ipcRenderer.send('print-to-pdf', fileName),
+  printToPdf: (fileName, templateName, resumeData) => ipcRenderer.send('print-to-pdf', { defaultFileName: fileName, templateName, resumeData }),
   onPdfSaved: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('pdf-saved', h); return () => ipcRenderer.removeListener('pdf-saved', h); },
   onPdfFailed: (callback) => { const h = (e, ...a) => callback(...a); ipcRenderer.on('pdf-failed', h); return () => ipcRenderer.removeListener('pdf-failed', h); },
 
