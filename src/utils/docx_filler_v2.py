@@ -217,24 +217,23 @@ def fill_template(template_path, data, output_path):
     if honors_list:
         HONOR_LABELS = ['荣誉奖励', '荣誉奖项', '获奖证书', '证书奖励', '获奖情况', '所获荣誉', '荣誉证书']
         honors_text = '\n'.join(
-            f'• {h}' if not h.startswith('•') and not h.startswith('-') else h
+            '• ' + h if not h.startswith('•') and not h.startswith('-') else h
             for h in honors_list
         )
         for pi, t_node, txt in para_texts:
             if txt in HONOR_LABELS:
-                # Replace adjacent list items after the label
                 for j in range(pi + 1, len(paragraphs)):
                     p = paragraphs[j]
-                    honor_nodes = [(t, n.text or '') for t in p.iter(f'{{{NS}}}t') if (n.text or '').strip()]
-                    if not honor_nodes:
+                    nodes = [(t, t.text or '') for t in p.iter(f'{{{NS}}}t')]
+                    text_nodes = [(t, txt) for t, txt in nodes if txt.strip()]
+                    if not text_nodes:
                         continue
-                    is_label = any(honor_nodes[0][1].strip() in HONOR_LABELS for _ in [0])
-                    if is_label:
+                    first_text = text_nodes[0][1].strip()
+                    if first_text in HONOR_LABELS:
                         break
-                    for t_node, _ in honor_nodes:
-                        t_node.text = ''
-                    if honor_nodes:
-                        honor_nodes[0][0].text = honors_text
+                    for t, _ in text_nodes:
+                        t.text = ''
+                    text_nodes[0][0].text = honors_text
                     break
                 break
 
