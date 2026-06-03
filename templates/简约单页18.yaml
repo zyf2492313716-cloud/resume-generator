@@ -1,0 +1,209 @@
+version: '1.0'
+template_name: 简约单页18
+style_group: 简约
+fallback: false
+basic_info:
+  fields:
+    name:
+      type: keyword_scan
+      keywords:
+      - 宋艾嘉
+      - 肖颖馨
+      - 韩志弘
+      - 李自强
+      - 张三
+      - 李四
+      - 王五
+      - 赵六
+      - 关睢尔
+      - 陈小明
+      - 刘小红
+      - 周洁
+      - 吴芳
+      - 白晓云
+      - 王若琳
+      - 沈慧美
+      - 林晓歌
+      - 林月明
+      - 柳云萧
+      - 苏语凝
+      - 钟小艾
+      - 冯青
+      - 张小泉
+      - 云海
+      - 陈知页
+      - 孟子君
+      - 孟晓思
+      - 关月兰
+      - 陈韵竹
+      - 林悦然
+      - 周子琪
+      - 张雨涵
+      - 李明轩
+      - 王思远
+      - 刘子涵
+      - 赵雨萱
+      - 孙梦琪
+      - 周雅婷
+      - 吴晓峰
+      - 郑思远
+      - 黄子轩
+      - 林雅琪
+      - 陈思远
+      - 张雅婷
+      - 李雨涵
+      - 王梦琪
+      - 刘子轩
+      - 赵雅婷
+      - 孙雨涵
+      - 周子轩
+      - 吴雅琪
+      - 郑雨萱
+      - 黄梦琪
+      - 林子轩
+      - 陈雅婷
+      - 张思远
+      - 李雅琪
+      - 王雨萱
+      - 刘梦琪
+      - 赵子轩
+      - 孙雅婷
+      - 周雨涵
+      - 吴思远
+      - 郑雅婷
+      - 黄雨涵
+      - 林梦琪
+      - 陈子轩
+      - 张子涵
+      - 李子轩
+      - 王雅婷
+      - 刘雅琪
+      - 赵思远
+      - 孙子轩
+      - 周梦琪
+      - 吴子涵
+      - 郑子轩
+      - 黄雅婷
+      - 林雨涵
+      - 陈雨萱
+      - 林宇凡
+      - 赵晓
+      - 梁静
+      - 刘璇凯
+      - 杨阳
+      - 雅丹
+      - 张韵艺
+      - 林萧
+      - 张全峰
+      - 王宇凡
+      - 艾明远
+      - 柳元青
+      - 王菲
+      - 陆然
+      - 刘明
+      - 宇帆
+      - 林博文
+      - 高凌云
+      - 张悦然
+      - 张晓轩
+      - 王灵筠
+      - 张筱婕
+      - 顾元昊
+      - 王晓峰
+      - 刘诗芸
+      - 李小冉
+      - 林晓云
+      - 文如菁
+      - 郭昀芸
+      - 周芳
+      - 黄怡
+      - 向薇尔
+      - 田筱雨
+      - 朗云
+      - 陈洁
+      - 新月
+      - 语敏
+      - 林丹阳
+      - 李思宇
+      - 李元茹
+      - 张筱
+      - 方文
+      - 明小
+      - 林云
+      - 张璐瑶
+      - 陈露露
+      - 郭洁
+      value_scope: full_node
+    title:
+      type: label_inline
+      pattern: 求职意向
+    phone:
+      type: label_inline
+      pattern: 电话
+    email:
+      type: pattern_match
+      pattern_type: email
+    summary:
+      type: section_replace
+      section: 自我评价
+sections:
+  honors:
+    header: 2011年广州科技大学校级一等奖奖学金
+    type: section_replace
+  experience:
+    header: 工作经验
+    entry_schema:
+      company:
+        type: keyword_scan
+        keywords:
+        - 公司
+        - 科技
+        - 企业
+        - 集团
+        - 有限
+        - 研究院
+        - 医院
+        - 银行
+        value_scope: keyword_substring
+      role:
+        type: keyword_scan
+        keywords:
+        - 经理
+        - 助理
+        - 总监
+        - 专员
+        - 工程师
+        - 实习
+        - 主管
+        value_scope: keyword_substring
+    item_separator: paragraph
+  skills:
+    header: 全国信息技术应用培训教育工程职业技能证书（AutoCAD建筑设计）
+    type: section_replace
+  education:
+    header: 教育背景
+    entry_schema:
+      school:
+        type: keyword_scan
+        keywords:
+        - 大学
+        - 学院
+        - 学校
+        value_scope: keyword_substring
+      major:
+        type: keyword_scan
+        keywords:
+        - 专业
+        - 工程
+        - 管理
+        - 设计
+        value_scope: keyword_substring
+      degree:
+        type: keyword_scan
+        keywords:
+        - 本科
+        - 硕士
+        - 博士
+        - 学士
+        value_scope: keyword_substring
+    item_separator: paragraph

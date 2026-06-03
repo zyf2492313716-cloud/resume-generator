@@ -1,0 +1,51 @@
+version: "1.0"
+template_name: "极简单页01"
+style_group: "极简"
+fallback: false
+
+basic_info:
+  fields:
+    name:
+      type: "label_adjacent"
+      pattern: "姓名"
+    title:
+      type: "keyword_scan"
+      keywords: ["设计", "网页", "平面"]
+      value_scope: "full_node"
+    phone:
+      type: "label_adjacent"
+      pattern: "电话"
+    email:
+      type: "label_adjacent"
+      pattern: "Email"
+
+sections:
+  education:
+    header: "教育经历"
+    entry_schema:
+      school:
+        type: "keyword_scan"
+        keywords: ["大学", "学院", "高中"]
+        value_scope: "keyword_substring"
+      major:
+        type: "keyword_scan"
+        keywords: ["专业"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"
+
+  experience:
+    header: "工作经验"
+    entry_schema:
+      company:
+        type: "keyword_scan"
+        keywords: ["公司", "编辑", "设计"]
+        value_scope: "keyword_substring"
+      role:
+        type: "keyword_scan"
+        keywords: ["设计师", "编辑", "写手"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"
+
+  skills:
+    header: "专业技能"
+    type: "section_replace"

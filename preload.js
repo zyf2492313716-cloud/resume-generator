@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getTemplateList: () => ipcRenderer.invoke('get-template-list'),
+  checkTemplateConfig: (templatePath) => ipcRenderer.invoke('check-template-config', { templatePath }),
   selectTemplateDir: () => ipcRenderer.invoke('select-template-dir'),
   renderPreview: (templateName, resumeData) => ipcRenderer.invoke('render-preview', { templateName, resumeData }),
 

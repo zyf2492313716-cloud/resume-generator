@@ -12,6 +12,9 @@ const BUNDLED_TEMPLATES = app.isPackaged
 const FILLER_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'utils', 'docx_filler_v2.py')
   : path.join(__dirname, 'src/utils/docx_filler_v2.py');
+const ENGINE_SCRIPT = app.isPackaged
+  ? path.join(process.resourcesPath, 'utils', 'template_engine.py')
+  : path.join(__dirname, 'src/utils/template_engine.py');
 
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8')); } catch (e) { return {}; }
@@ -63,8 +66,9 @@ function fillDocx(templatePath, resumeData, outputPath) {
   const tempJson = path.join(app.getPath('temp'), `resume_${Date.now()}.json`);
   fs.writeFileSync(tempJson, JSON.stringify(resumeData, null, 2), 'utf-8');
   try {
+    // Use template_engine.py with fill_with_fallback (YAML → engine, else → v2)
     execSync(
-      `python3 "${FILLER_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"`,
+      `python3 "${ENGINE_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"`,
       { encoding: 'utf-8', timeout: 30000 }
     );
     if (!fs.existsSync(outputPath)) {
@@ -74,7 +78,17 @@ function fillDocx(templatePath, resumeData, outputPath) {
     return true;
   } catch (err) {
     console.error('Fill docx error:', err.message);
-    return false;
+    // Fallback to v2 if engine fails
+    try {
+      execSync(
+        `python3 "${FILLER_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"`,
+        { encoding: 'utf-8', timeout: 30000 }
+      );
+      return fs.existsSync(outputPath);
+    } catch (err2) {
+      console.error('V2 fallback error:', err2.message);
+      return false;
+    }
   } finally {
     try { fs.unlinkSync(tempJson); } catch (e) {}
   }
@@ -163,6 +177,19 @@ ipcMain.handle('get-template-list', async () => {
   return scanTemplates();
 });
 
+ipcMain.handle('check-template-config', async (event, { templatePath }) => {
+  const configPath = templatePath.replace('.docx', '.yaml');
+  const exists = fs.existsSync(configPath);
+  let fallback = false;
+  if (exists) {
+    try {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      fallback = content.includes('fallback: true');
+    } catch (e) {}
+  }
+  return { hasConfig: exists, fallback };
+});
+
 ipcMain.handle('select-template-dir', async () => {
   if (!mainWindow) return { success: false };
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -241,11 +268,21 @@ ipcMain.on('export-to-word', async (event, { templateName, resumeData }) => {
   const tempJson = path.join(app.getPath('temp'), `export_${Date.now()}.json`);
   fs.writeFileSync(tempJson, JSON.stringify(resumeData, null, 2), 'utf-8');
 
-  exec(`python3 "${FILLER_SCRIPT}" "${tempJson}" "${template.path}" "${filePath}"`, { encoding: 'utf-8', timeout: 30000 }, (error, stdout, stderr) => {
+  exec(`python3 "${ENGINE_SCRIPT}" "${tempJson}" "${template.path}" "${filePath}"`, { encoding: 'utf-8', timeout: 30000 }, (error, stdout, stderr) => {
     try { fs.unlinkSync(tempJson); } catch (e) {}
     if (error) {
-      console.error('Export error:', stderr);
-      event.reply('word-failed', 'Word 导出失败');
+      // Fallback to v2
+      const tempJson2 = path.join(app.getPath('temp'), `export2_${Date.now()}.json`);
+      fs.writeFileSync(tempJson2, JSON.stringify(resumeData, null, 2), 'utf-8');
+      exec(`python3 "${FILLER_SCRIPT}" "${tempJson2}" "${template.path}" "${filePath}"`, { encoding: 'utf-8', timeout: 30000 }, (err2) => {
+        try { fs.unlinkSync(tempJson2); } catch (e) {}
+        if (err2) {
+          console.error('Export error:', err2.message);
+          event.reply('word-failed', 'Word 导出失败');
+          return;
+        }
+        event.reply('word-saved', `已导出: ${path.basename(filePath)}`);
+      });
       return;
     }
     console.log('Export:', stdout);

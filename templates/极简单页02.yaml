@@ -1,0 +1,50 @@
+version: "1.0"
+template_name: "极简单页02"
+style_group: "极简"
+fallback: false
+
+basic_info:
+  fields:
+    name:
+      type: "keyword_scan"
+      keywords: ["孟晓思"]
+      value_scope: "full_node"
+    phone:
+      type: "keyword_scan"
+      keywords: ["181234567890", "138"]
+      value_scope: "keyword_substring"
+    email:
+      type: "keyword_scan"
+      keywords: ["@qq.com", "@"]
+      value_scope: "keyword_substring"
+
+sections:
+  education:
+    header: "教育背景"
+    entry_schema:
+      school:
+        type: "keyword_scan"
+        keywords: ["大学", "学院", "师范", "民族"]
+        value_scope: "keyword_substring"
+      major:
+        type: "keyword_scan"
+        keywords: ["管理", "金融", "专业"]
+        value_scope: "keyword_substring"
+      degree:
+        type: "keyword_scan"
+        keywords: ["硕士", "本科", "博士"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"
+
+  experience:
+    header: "工作经历"
+    entry_schema:
+      company:
+        type: "keyword_scan"
+        keywords: ["公司", "科技", "企业"]
+        value_scope: "keyword_substring"
+      role:
+        type: "keyword_scan"
+        keywords: ["助理", "会计", "经理"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"

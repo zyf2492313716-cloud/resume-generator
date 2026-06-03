@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layers, FileText, RefreshCw } from 'lucide-react';
 
 const STYLE_GROUPS = [
@@ -16,6 +16,32 @@ export default function TemplatePanel({
   setSelectedTemplate,
   onReloadTemplates
 }) {
+  const [configStatus, setConfigStatus] = useState({});
+
+  useEffect(() => {
+    if (!window.electronAPI?.checkTemplateConfig || !templateList.length) return;
+    const check = async () => {
+      const status = {};
+      for (const t of templateList) {
+        try {
+          const result = await window.electronAPI.checkTemplateConfig(t.path);
+          status[t.name] = result;
+        } catch (e) {
+          status[t.name] = { hasConfig: false, fallback: false };
+        }
+      }
+      setConfigStatus(status);
+    };
+    check();
+  }, [templateList]);
+
+  const getStatusIcon = (name) => {
+    const s = configStatus[name];
+    if (!s) return null;
+    if (s.hasConfig && !s.fallback) return <span title="YAML 配置" style={{ color: '#4ade80', fontSize: '10px', fontWeight: 700 }}>✓</span>;
+    if (s.hasConfig && s.fallback) return <span title="YAML + v2 兜底" style={{ color: '#fb923c', fontSize: '10px', fontWeight: 700 }}>○</span>;
+    return <span title="v2 填充" style={{ color: '#6b7280', fontSize: '10px' }}>—</span>;
+  };
   const grouped = {};
   templateList.forEach(t => {
     let group = '其他';
@@ -101,6 +127,7 @@ export default function TemplatePanel({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <FileText size={12} style={{ flexShrink: 0 }} />
                         <span>{t.displayName}</span>
+                        {getStatusIcon(t.name)}
                       </div>
                     </div>
                   );

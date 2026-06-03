@@ -1,0 +1,807 @@
+"""
+template_engine.py - Configuration-driven resume template filler MVP.
+
+5 core matching modes:
+1. label_inline: label+value in same w:t node (e.g. "姓名：宋艾嘉")
+2. label_adjacent: label in one w:t, value in next w:t (same or next paragraph)
+3. keyword_scan: find keyword in text node, expand to word boundaries
+4. section_replace: replace content paragraphs in a section
+5. label_group: multiple labels followed by multiple values (e.g. 手机/微信/邮箱 → values)
+
+Built-in capabilities:
+- Giant paragraph detection (nested paragraph count > 3)
+- w:tab handling (logical expansion to space separator)
+- 3-layer error handling (section skip → field skip → always produce docx)
+"""
+
+import zipfile
+from lxml import etree as ET
+import yaml
+import sys
+import re
+
+NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+def _normalize_chinese_spaces(text):
+    """Remove spaces between Chinese characters and strip English suffixes."""
+    text = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', text)
+    text = re.sub(r'\s+[A-Za-z\s]+$', '', text).strip()
+    return text
+
+# Register namespace prefixes so lxml preserves them during serialization
+_NSMAP = {
+    'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+    'mc': 'http://schemas.openxmlformats.org/markup-compatibility/2006',
+    'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+    'wps': 'http://schemas.openxmlformats.org/officeWord/2010/wordprocessingShape',
+    'v': 'urn:schemas-microsoft-com:vml',
+    'o': 'urn:schemas-microsoft-com:office:office',
+    'w14': 'http://schemas.microsoft.com/office/word/2010/wordml',
+    'w15': 'http://schemas.microsoft.com/office/word/2012/wordml',
+    'wp14': 'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing',
+    'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+    'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+}
+for prefix, uri in _NSMAP.items():
+    ET.register_namespace(prefix, uri)
+
+# All known section headers for boundary detection
+ALL_SECTION_HEADERS = [
+    '教育背景', '教育经历', '工作经历', '工作经验', '实习经历',
+    '校内实践', '实践经历', '证书奖励', '荣誉证书', '荣誉奖项',
+    '个人荣誉', '荣誉AWARDS', '自我评价', '个人介绍', '个人信息',
+    '专业技能', '职业技能', '掌握技能', '技能SKILLS', '兴趣爱好',
+    '资格证书', '在校经历', '获奖经历', '奖项荣誉', '基本信息',
+    '联系方式', '主修课程', '其他工作经历', '技能证书',
+    '实践经历PRACTICAL EXPERIENCE', '实习经历JOB EXPERIENCE',
+    '教育背景EDUCATION', '荣誉AWARDS', '技能SKILLS',
+    # Additional headers
+    '荣誉奖励', '获得荣誉', '获奖情况', '所获证书', '证书奖项', '技能奖项',
+    '个人技能', '工作技能', '软件技能', '外语技能', '职场技能', '商务技能',
+    '个人简介', '个人评价', '自我总结', '个人资料', '基本资料', '基础信息',
+    '个人简历', '求职简历', '实习实践', '工作实践', '校内活动', '实践活动',
+    '竞赛经历', '奖学金', '优势特长', '技能评价', '个人特性',
+    '校园经历', '社团经历', '学生工作', '培训经历',
+    # English headers
+    'EDUCATION', 'EXPERIENCE', 'SKILLS', 'AWARDS', 'INTRODUCTION',
+    'PRACTICAL', 'RESUME', 'JOB', 'TRAINING', 'PERSONAL', 'PROFILE',
+    'ABOUT', 'CONTACT',
+]
+
+
+class TemplateEngine:
+    def __init__(self, template_path: str, config: dict):
+        self.template_path = template_path
+        self.config = config
+        self.warnings = []
+
+        with zipfile.ZipFile(template_path, 'r') as z:
+            self.doc_xml = z.read('word/document.xml').decode('utf-8')
+        self.root = ET.fromstring(self.doc_xml.encode('utf-8'))
+        self.body = self.root.find(f'{{{NS}}}body')
+        self.paragraphs = list(self.body.iter(f'{{{NS}}}p'))
+
+        self._detect_giant_paragraphs()
+
+    def _warn(self, msg: str):
+        self.warnings.append(msg)
+        print(f"  [WARN] {msg}", file=sys.stderr)
+
+    # ── Giant paragraph detection ──────────────────────────────────────
+    def _detect_giant_paragraphs(self):
+        self.giant_para_indices = set()
+        body_direct = [c for c in self.body if c.tag == f'{{{NS}}}p']
+        for p in body_direct:
+            nested_count = len(list(p.iter(f'{{{NS}}}p')))
+            if nested_count > 3:
+                try:
+                    idx = self.paragraphs.index(p)
+                    self.giant_para_indices.add(idx)
+                except ValueError:
+                    pass
+
+    # ── Text node helpers ──────────────────────────────────────────────
+    def _get_own_text_nodes(self, para):
+        nodes = []
+        for r in para.findall(f'{{{NS}}}r'):
+            for t in r.findall(f'{{{NS}}}t'):
+                nodes.append(t)
+        return nodes
+
+    def _get_para_texts(self, para):
+        result = []
+        for r in para.findall(f'{{{NS}}}r'):
+            for t in r.findall(f'{{{NS}}}t'):
+                txt = (t.text or '').strip()
+                if txt:
+                    result.append((t, txt))
+        return result
+
+    def _get_para_full_text(self, para):
+        texts = []
+        for r in para.findall(f'{{{NS}}}r'):
+            for t in r.findall(f'{{{NS}}}t'):
+                if t.text:
+                    texts.append(t.text)
+        return ''.join(texts).strip()
+
+    def _set_node_text(self, t_node, value):
+        t_node.text = value
+
+    def _clear_node_text(self, t_node):
+        t_node.text = ''
+
+    # ── Section boundary detection ─────────────────────────────────────
+    def _find_section_paras(self, header_text):
+        results = []
+        normalized_header = _normalize_chinese_spaces(header_text)
+        for pi, p in enumerate(self.paragraphs):
+            if pi in self.giant_para_indices:
+                continue
+            own = self._get_own_text_nodes(p)
+            for t in own:
+                txt = _normalize_chinese_spaces((t.text or '').strip())
+                if txt == normalized_header:
+                    results.append((pi, p))
+                    break
+        return results
+
+    def _find_next_header_pi(self, start_pi, skip_text=None):
+        normalized_skip = _normalize_chinese_spaces(skip_text) if skip_text else None
+        for pi in range(start_pi + 1, len(self.paragraphs)):
+            if pi in self.giant_para_indices:
+                continue
+            own = self._get_own_text_nodes(self.paragraphs[pi])
+            for t in own:
+                txt = _normalize_chinese_spaces((t.text or '').strip())
+                if txt in ALL_SECTION_HEADERS and txt != normalized_skip:
+                    return pi
+        return len(self.paragraphs)
+
+    def _find_prev_header_pi(self, start_pi, skip_text=None):
+        normalized_skip = _normalize_chinese_spaces(skip_text) if skip_text else None
+        for pi in range(start_pi - 1, -1, -1):
+            if pi in self.giant_para_indices:
+                continue
+            own = self._get_own_text_nodes(self.paragraphs[pi])
+            for t in own:
+                txt = _normalize_chinese_spaces((t.text or '').strip())
+                if txt in ALL_SECTION_HEADERS and txt != normalized_skip:
+                    return pi
+        return 0
+
+    def _get_section_content_paras(self, header_pi):
+        """Get content paragraphs around a header.
+        Returns (before_paras, after_paras) where each is list of (pi, para).
+        """
+        header_text = self._get_para_full_text(self.paragraphs[header_pi]).strip()
+        prev_pi = self._find_prev_header_pi(header_pi, skip_text=header_text)
+        next_pi = self._find_next_header_pi(header_pi, skip_text=header_text)
+
+        before = []
+        for pi in range(prev_pi, header_pi):
+            if pi in self.giant_para_indices:
+                continue
+            p = self.paragraphs[pi]
+            own = self._get_own_text_nodes(p)
+            if own:
+                before.append((pi, p))
+
+        after = []
+        for pi in range(header_pi + 1, next_pi):
+            if pi in self.giant_para_indices:
+                continue
+            p = self.paragraphs[pi]
+            own = self._get_own_text_nodes(p)
+            if own:
+                after.append((pi, p))
+
+        return before, after
+
+    # ── Mode 1: label_inline ───────────────────────────────────────────
+    def _match_label_inline(self, para, pattern, value):
+        for t, txt in self._get_para_texts(para):
+            if pattern in txt:
+                sep_idx = txt.find('：')
+                if sep_idx < 0:
+                    sep_idx = txt.find(':')
+                if sep_idx >= 0 and sep_idx >= len(pattern) - 1:
+                    before = txt[:sep_idx + 1]
+                    self._set_node_text(t, before + value)
+                    return True
+        return False
+
+    # ── Mode 2: label_adjacent ─────────────────────────────────────────
+    def _match_label_adjacent(self, para, pattern, value):
+        """Match label in one text node, value in next non-empty text node (same paragraph)."""
+        texts = self._get_para_texts(para)
+        for i, (t, txt) in enumerate(texts):
+            if txt == pattern or txt.startswith(pattern):
+                for j in range(i + 1, len(texts)):
+                    t2, txt2 = texts[j]
+                    if txt2 and not self._is_label_text(txt2):
+                        self._set_node_text(t2, value)
+                        return True
+        return False
+
+    def _match_label_adjacent_cross_para(self, label_pi, pattern, value, max_distance=3):
+        """Match label in paragraph N, value in paragraph N+1..N+max_distance."""
+        for offset in range(1, max_distance + 1):
+            target_pi = label_pi + offset
+            if target_pi >= len(self.paragraphs):
+                break
+            if target_pi in self.giant_para_indices:
+                continue
+            p = self.paragraphs[target_pi]
+            texts = self._get_para_texts(p)
+            for t, txt in texts:
+                if txt and not self._is_label_text(txt) and not self._is_section_header(txt):
+                    self._set_node_text(t, value)
+                    return True
+        return False
+
+    def _is_label_text(self, txt):
+        label_patterns = [
+            '姓名', '电话', '手机', '邮箱', 'Email', 'email',
+            '地址', '网址', '院校', '学校', '专业', '学历',
+            '年龄', '籍贯', '性别', '身高', '政治面貌',
+            '生日', '现居', '微信', '微博', 'QQ',
+        ]
+        return any(txt.startswith(p) for p in label_patterns)
+
+    def _is_section_header(self, txt):
+        return txt in ALL_SECTION_HEADERS
+
+    # ── Mode 3: keyword_scan ───────────────────────────────────────────
+    def _match_keyword_scan(self, para, keywords, value, value_scope='keyword_substring'):
+        texts = self._get_para_texts(para)
+        for t, txt in texts:
+            for kw in keywords:
+                if kw in txt:
+                    if value_scope == 'full_node':
+                        # Only match if keyword is significant portion (>30%) or >=2 chars
+                        if len(kw) >= 2 or txt == kw:
+                            self._set_node_text(t, value)
+                            return True
+                    else:
+                        new_txt = self._expand_and_replace(txt, kw, value)
+                        self._set_node_text(t, new_txt)
+                        return True
+        # Fallback: check concatenated text for split-node keywords
+        if texts:
+            concat = ''.join(txt for _, txt in texts)
+            concat_nospace = concat.replace(' ', '').replace('\u3000', '')
+            for kw in keywords:
+                kw_nospace = kw.replace(' ', '')
+                if kw_nospace in concat_nospace:
+                    if value_scope == 'full_node':
+                        if len(kw) >= 2:
+                            self._set_node_text(texts[0][0], value)
+                            for t, _ in texts[1:]:
+                                self._clear_node_text(t)
+                            return True
+                    else:
+                        new_concat = self._expand_and_replace(concat, kw, value)
+                        self._set_node_text(texts[0][0], new_concat)
+                        for t, _ in texts[1:]:
+                            self._clear_node_text(t)
+                        return True
+        return False
+
+    def _expand_and_replace(self, txt, keyword, value):
+        idx = txt.find(keyword)
+        if idx < 0:
+            return txt
+        start = idx
+        while start > 0:
+            ch = txt[start - 1]
+            if ch in ' \t，。、；：|/！？（）()[]【】{}':
+                break
+            start -= 1
+        end = idx + len(keyword)
+        while end < len(txt):
+            ch = txt[end]
+            if ch in ' \t，。、；：|/！？（）()[]【】{}':
+                break
+            end += 1
+        return txt[:start] + value + txt[end:]
+
+    def _fill_keyword_global(self, keywords, value, value_scope='keyword_substring', replace_all=False):
+        filled = False
+        for pi, p in enumerate(self.paragraphs):
+            if pi in self.giant_para_indices:
+                continue
+            if self._match_keyword_scan(p, keywords, value, value_scope):
+                filled = True
+                if not replace_all:
+                    return True
+        return filled
+
+    # ── Mode 5: pattern_match (regex-based phone/email) ──────────────
+    def _fill_pattern_match(self, pattern_type, value):
+        import re
+        if pattern_type == 'phone':
+            # Match 10-11 digit phone numbers starting with 1
+            # Also handle dashed format: 138-0013-8000
+            regex = re.compile(r'1[3-9]\d{8,9}')
+            dashed_regex = re.compile(r'1[3-9]\d-\d{4}-\d{4}')
+        elif pattern_type == 'email':
+            # Match email addresses (including edge cases like @.com)
+            regex = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]*\.[a-zA-Z]{2,}')
+            dashed_regex = None
+        else:
+            return False
+
+        for pi, p in enumerate(self.paragraphs):
+            # Use iter() to find text nodes in nested paragraphs too
+            for t in p.iter(f'{{{NS}}}t'):
+                txt = (t.text or '').strip()
+                if not txt:
+                    continue
+                # Try dashed format first for phone
+                if pattern_type == 'phone' and dashed_regex:
+                    match = dashed_regex.search(txt)
+                    if match:
+                        new_txt = txt[:match.start()] + value + txt[match.end():]
+                        self._set_node_text(t, new_txt)
+                        return True
+                match = regex.search(txt)
+                if match:
+                    new_txt = txt[:match.start()] + value + txt[match.end():]
+                    self._set_node_text(t, new_txt)
+                    return True
+        return False
+
+    # ── Mode 4: section_replace ────────────────────────────────────────
+    def _fill_section_replace(self, header_text, value):
+        header_paras = self._find_section_paras(header_text)
+        if not header_paras:
+            self._warn(f"Section header '{header_text}' not found")
+            return False
+
+        filled = False
+        for header_pi, _ in header_paras:
+            # Search AFTER the header first
+            next_pi = self._find_next_header_pi(header_pi, skip_text=header_text)
+            for pi in range(header_pi + 1, next_pi):
+                if pi in self.giant_para_indices:
+                    continue
+                p = self.paragraphs[pi]
+                own = self._get_own_text_nodes(p)
+                if own:
+                    self._set_node_text(own[0], value)
+                    for t in own[1:]:
+                        self._clear_node_text(t)
+                    filled = True
+                    break
+
+            # If not found after, search BEFORE the header
+            if not filled:
+                prev_pi = self._find_prev_header_pi(header_pi, skip_text=header_text)
+                for pi in range(header_pi - 1, prev_pi - 1, -1):
+                    if pi in self.giant_para_indices:
+                        continue
+                    p = self.paragraphs[pi]
+                    own = self._get_own_text_nodes(p)
+                    if own:
+                        self._set_node_text(own[0], value)
+                        for t in own[1:]:
+                            self._clear_node_text(t)
+                        filled = True
+                        break
+
+        return filled
+
+    # ── Mode 5: label_group ────────────────────────────────────────────
+    def _fill_label_group(self, field_patterns, data_values):
+        """Handle label group → value group pattern.
+        field_patterns: dict of {field_name: label_pattern}
+        data_values: dict of {field_name: value}
+        """
+        # Find all label paragraphs
+        label_paras = []
+        for pi, p in enumerate(self.paragraphs):
+            if pi in self.giant_para_indices:
+                continue
+            own = self._get_own_text_nodes(p)
+            for t in own:
+                txt = (t.text or '').strip()
+                for field_name, pattern in field_patterns.items():
+                    if txt == pattern or txt.startswith(pattern):
+                        label_paras.append((pi, field_name))
+                        break
+
+        if not label_paras:
+            return False
+
+        # Find value paragraphs after the last label
+        last_label_pi = max(lp[0] for lp in label_paras)
+        value_paras = []
+        for pi in range(last_label_pi + 1, len(self.paragraphs)):
+            if pi in self.giant_para_indices:
+                continue
+            p = self.paragraphs[pi]
+            own = self._get_own_text_nodes(p)
+            if own:
+                full_text = self._get_para_full_text(p)
+                if full_text and not self._is_label_text(full_text) and not self._is_section_header(full_text):
+                    value_paras.append((pi, p))
+            if len(value_paras) >= len(label_paras):
+                break
+
+        # Match labels to values by position
+        filled = False
+        for i, (label_pi, field_name) in enumerate(label_paras):
+            if field_name not in data_values or not data_values[field_name]:
+                continue
+            if i < len(value_paras):
+                _, p = value_paras[i]
+                own = self._get_own_text_nodes(p)
+                if own:
+                    self._set_node_text(own[0], data_values[field_name])
+                    for t in own[1:]:
+                        self._clear_node_text(t)
+                    filled = True
+
+        return filled
+
+    # ── Entry schema filling ───────────────────────────────────────────
+    def _try_fill_entries(self, entry_paras, entry_schema, entries):
+        """Try to fill entries in the given paragraphs. Returns number of entries filled."""
+        entry_idx = 0
+        schema_keys = list(entry_schema.keys())
+        primary_field = schema_keys[0] if schema_keys else None
+
+        for pi, p in entry_paras:
+            if entry_idx >= len(entries):
+                break
+            entry = entries[entry_idx]
+            filled_any = False
+            primary_filled = False
+            for field_name, field_cfg in entry_schema.items():
+                if field_name not in entry or not entry[field_name]:
+                    continue
+                value = str(entry[field_name])
+                ftype = field_cfg.get('type')
+                if ftype == 'keyword_scan':
+                    keywords = field_cfg.get('keywords', [])
+                    vs = field_cfg.get('value_scope', 'keyword_substring')
+                    if self._match_keyword_scan(p, keywords, value, vs):
+                        filled_any = True
+                        if field_name == primary_field:
+                            primary_filled = True
+                elif ftype == 'full_node_replace':
+                    fmt = field_cfg.get('format', '{value}')
+                    formatted = fmt.format(value=value, **{k: str(entry.get(k, '')) for k in entry})
+                    own = self._get_own_text_nodes(p)
+                    if own:
+                        self._set_node_text(own[0], formatted)
+                        for t in own[1:]:
+                            self._clear_node_text(t)
+                        filled_any = True
+                        if field_name == primary_field:
+                            primary_filled = True
+
+            # Only move to next entry when the primary field (company/school) is filled
+            if primary_filled:
+                entry_idx += 1
+        return entry_idx
+
+    def _fill_entry_schema(self, header_text, entry_schema, entries, item_separator='paragraph'):
+        header_paras = self._find_section_paras(header_text)
+        if not header_paras:
+            self._warn(f"Section header '{header_text}' not found")
+            return False
+
+        for header_pi, _ in header_paras:
+            before_paras, after_paras = self._get_section_content_paras(header_pi)
+
+            # Try AFTER first (most common in Chinese templates), then BEFORE
+            filled = 0
+            if after_paras:
+                filled = self._try_fill_entries(after_paras, entry_schema, entries)
+            if filled == 0 and before_paras:
+                filled = self._try_fill_entries(before_paras, entry_schema, entries)
+
+            if filled > 0:
+                return True
+
+        # Global fallback: scan ALL paragraphs for keywords
+        schema_keys = list(entry_schema.keys())
+        primary_field = schema_keys[0] if schema_keys else None
+        primary_cfg = entry_schema.get(primary_field, {})
+        primary_keywords = primary_cfg.get('keywords', [])
+
+        if primary_keywords and entries:
+            # Collect all section header texts to skip
+            all_header_texts = set()
+            for sec in self.config.get('sections', {}).values():
+                h = sec.get('header', '')
+                if h:
+                    all_header_texts.add(h)
+
+            global_paras = []
+            for pi, p in enumerate(self.paragraphs):
+                if pi in self.giant_para_indices:
+                    continue
+                txt = self._get_para_full_text(p)
+                if not txt:
+                    continue
+                if txt in all_header_texts:
+                    continue
+                global_paras.append((pi, p))
+
+            filled = self._try_fill_entries(global_paras, entry_schema, entries)
+            if filled > 0:
+                return True
+
+        return False
+
+    # ── Main fill method ───────────────────────────────────────────────
+    def fill(self, data: dict, output_path: str) -> bool:
+        basic = data.get('basicInfo', {})
+        any_filled = False
+
+        # Collect label_group fields
+        bi_cfg = self.config.get('basic_info', {}).get('fields', {})
+        label_group_fields = {}
+        non_group_fields = {}
+
+        for field_name, field_cfg in bi_cfg.items():
+            if field_cfg.get('type') == 'label_group':
+                label_group_fields[field_name] = field_cfg
+            else:
+                non_group_fields[field_name] = field_cfg
+
+        # Fill label_group fields first
+        if label_group_fields:
+            patterns = {k: v.get('pattern', '') for k, v in label_group_fields.items()}
+            values = {k: basic.get(k, '') for k in label_group_fields}
+            if self._fill_label_group(patterns, values):
+                any_filled = True
+
+        # Fill non-group basic_info fields
+        for field_name, field_cfg in non_group_fields.items():
+            value = basic.get(field_name)
+            if not value:
+                continue
+
+            ftype = field_cfg.get('type')
+            filled = False
+
+            if ftype == 'label_inline':
+                pattern = field_cfg.get('pattern', '')
+                for pi, p in enumerate(self.paragraphs):
+                    if pi in self.giant_para_indices:
+                        continue
+                    if self._match_label_inline(p, pattern, value):
+                        filled = True
+                        break
+                # Fallback: try giant paragraphs too
+                if not filled:
+                    for pi in self.giant_para_indices:
+                        p = self.paragraphs[pi]
+                        if self._match_label_inline(p, pattern, value):
+                            filled = True
+                            break
+
+            elif ftype == 'label_adjacent':
+                pattern = field_cfg.get('pattern', '')
+                for pi, p in enumerate(self.paragraphs):
+                    if pi in self.giant_para_indices:
+                        continue
+                    if self._match_label_adjacent(p, pattern, value):
+                        filled = True
+                        # Don't break - replace all matching paragraphs
+                # Fallback: try giant paragraphs too
+                if not filled:
+                    for pi in self.giant_para_indices:
+                        p = self.paragraphs[pi]
+                        if self._match_label_adjacent(p, pattern, value):
+                            filled = True
+                            break
+                # Fallback: cross-paragraph label_adjacent
+                if not filled:
+                    for pi, p in enumerate(self.paragraphs):
+                        if pi in self.giant_para_indices:
+                            continue
+                        own = self._get_own_text_nodes(p)
+                        for t in own:
+                            txt = (t.text or '').strip()
+                            if txt == pattern or txt.startswith(pattern):
+                                if self._match_label_adjacent_cross_para(pi, pattern, value):
+                                    filled = True
+                                    break
+                        if filled:
+                            break
+
+            elif ftype == 'keyword_scan':
+                keywords = field_cfg.get('keywords', [])
+                vs = field_cfg.get('value_scope', 'keyword_substring')
+                # Replace all occurrences for name/title, first-only for others
+                ra = field_name in ('name', 'title')
+                filled = self._fill_keyword_global(keywords, value, vs, replace_all=ra)
+
+            elif ftype == 'pattern_match':
+                # Regex-based matching for phone/email without labels
+                pattern_type = field_cfg.get('pattern_type', '')
+                filled = self._fill_pattern_match(pattern_type, value)
+
+            elif ftype == 'section_replace':
+                section = field_cfg.get('section', '')
+                filled = self._fill_section_replace(section, value)
+
+            if not filled:
+                self._warn(f"Field '{field_name}' not filled (type={ftype})")
+            else:
+                any_filled = True
+
+        # Fill sections (education, experience, etc.)
+        for sec_name, sec_cfg in self.config.get('sections', {}).items():
+            header = sec_cfg.get('header', '')
+            sec_type = sec_cfg.get('type')
+
+            if sec_type == 'section_replace':
+                items = data.get(sec_name, [])
+                if not items:
+                    continue
+                if isinstance(items[0], str):
+                    value = '\n'.join(f'• {item}' if sec_name == 'honors' else item for item in items)
+                else:
+                    value = '\n'.join(str(item) for item in items)
+                if self._fill_section_replace(header, value):
+                    any_filled = True
+                else:
+                    self._warn(f"Section '{sec_name}' header '{header}' not found")
+
+            elif 'entry_schema' in sec_cfg:
+                entries = data.get(sec_name, [])
+                if not entries:
+                    continue
+                schema = sec_cfg['entry_schema']
+                sep = sec_cfg.get('item_separator', 'paragraph')
+                if self._fill_entry_schema(header, schema, entries, sep):
+                    any_filled = True
+                else:
+                    self._warn(f"Section '{sec_name}' entries not filled")
+
+        # Post-processing: replace ALL remaining placeholder names globally
+        name = basic.get('name', '')
+        if name:
+            PLACEHOLDER_NAMES = [
+                '宋艾嘉', '肖颖馨', '韩志弘', '李自强', '张三', '李四', '王五',
+                '赵六', '关睢尔', '陈小明', '刘小红', '周洁', '吴芳',
+                '白晓云', '王若琳', '沈慧美', '林晓歌', '林月明', '柳云萧',
+                '苏语凝', '钟小艾', '冯青', '张小泉', '云海', '陈知页',
+                '孟子君', '孟晓思', '关月兰', '宋艾嘉',
+            ]
+            for pi, p in enumerate(self.paragraphs):
+                if pi in self.giant_para_indices:
+                    continue
+                texts = self._get_para_texts(p)
+                for t, txt in texts:
+                    if txt in PLACEHOLDER_NAMES:
+                        self._set_node_text(t, name)
+                # Also check concatenated text for split-node names
+                if texts:
+                    concat = ''.join(txt for _, txt in texts)
+                    concat_ns = concat.replace(' ', '').replace('\u3000', '')
+                    for ph in PLACEHOLDER_NAMES:
+                        ph_ns = ph.replace(' ', '')
+                        if ph_ns in concat_ns:
+                            self._set_node_text(texts[0][0], name)
+                            for t, _ in texts[1:]:
+                                self._clear_node_text(t)
+                            break
+
+        self._save(output_path)
+        return any_filled
+
+    def _save(self, output_path: str):
+        xml_bytes = ET.tostring(self.root, xml_declaration=True, encoding='UTF-8', standalone=True)
+
+        with zipfile.ZipFile(self.template_path, 'r') as zin:
+            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    if item.filename == 'word/document.xml':
+                        zout.writestr(item, xml_bytes)
+                    else:
+                        zout.writestr(item, zin.read(item.filename))
+
+
+def fill(template_path: str, config: dict, data: dict, output_path: str) -> bool:
+    engine = TemplateEngine(template_path, config)
+    return engine.fill(data, output_path)
+
+
+def fill_with_config_path(template_path: str, config_path: str, data: dict, output_path: str) -> bool:
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    return fill(template_path, config, data, output_path)
+
+
+def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool:
+    """Fill a template using YAML config with v2 fallback.
+
+    Priority:
+    1. Template has .yaml → use template_engine
+    2. Template engine fails AND yaml has fallback: true → use v2
+    3. Template has no .yaml → use v2 directly
+    """
+    import os
+    config_path = template_path.replace('.docx', '.yaml')
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            result = fill(template_path, config, data, output_path)
+            if result:
+                print(f"{os.path.basename(template_path)}:engine:OK", file=sys.stderr)
+                return True
+            if config.get('fallback', False):
+                print(f"{os.path.basename(template_path)}:engine:FAIL_FALLBACK", file=sys.stderr)
+            else:
+                print(f"{os.path.basename(template_path)}:engine:FAIL_NO_FALLBACK", file=sys.stderr)
+                return False
+        except Exception as e:
+            print(f"{os.path.basename(template_path)}:engine:ERROR_{e}", file=sys.stderr)
+
+    # v2 fallback
+    from docx_filler_v2 import fill_template as v2_fill
+    try:
+        v2_fill(template_path, data, output_path)
+        print(f"{os.path.basename(template_path)}:v2:OK", file=sys.stderr)
+        return True
+    except Exception as e:
+        print(f"{os.path.basename(template_path)}:v2:ERROR_{e}", file=sys.stderr)
+        return False
+
+
+if __name__ == '__main__':
+    import json as _json
+
+    if len(sys.argv) < 3:
+        print("Usage: python template_engine.py <data.json> <template.docx> <output.docx>")
+        print("   or: python template_engine.py <config.yaml> <template.docx> <output.docx> --config-mode")
+        sys.exit(1)
+
+    arg1 = sys.argv[1]
+    template_path = sys.argv[2]
+    output_path = sys.argv[3] if len(sys.argv) > 3 else 'output.docx'
+
+    # Read data from stdin or file
+    if arg1.endswith('.json'):
+        with open(arg1, 'r', encoding='utf-8') as f:
+            data = _json.load(f)
+    elif arg1.endswith('.yaml') or arg1.endswith('.yml'):
+        # Config-mode: config yaml + template + output, data from stdin
+        config_path = arg1
+        if not sys.stdin.isatty():
+            data = _json.load(sys.stdin)
+        else:
+            data = {
+                "basicInfo": {
+                    "name": "张三", "title": "软件工程师",
+                    "phone": "13812345678", "email": "zhangsan@example.com",
+                    "summary": "10年软件开发经验"
+                },
+                "education": [{"school": "清华大学", "major": "计算机科学", "degree": "本科", "date": "2009-2013"}],
+                "experience": [{"company": "字节跳动", "role": "高级工程师", "date": "2018-至今", "description": "负责推荐系统开发"}],
+                "honors": ["国家奖学金", "ACM竞赛金奖"],
+                "skills": ["Python", "Java", "Go"]
+            }
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        success = fill(template_path, config, data, output_path)
+        print(f"{'OK' if success else 'WARN'}: {output_path}")
+        sys.exit(0 if success else 1)
+    else:
+        print(f"Unknown arg: {arg1}", file=sys.stderr)
+        sys.exit(1)
+
+    # JSON data mode: use fill_with_fallback
+    success = fill_with_fallback(template_path, data, output_path)
+    print(f"{'OK' if success else 'WARN'}: {output_path}")
+    sys.exit(0 if success else 1)

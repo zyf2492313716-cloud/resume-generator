@@ -1,0 +1,62 @@
+version: "1.0"
+template_name: "活泼单页06"
+style_group: "活泼"
+fallback: false
+
+basic_info:
+  fields:
+    name:
+      type: "keyword_scan"
+      keywords: ["关月兰"]
+      value_scope: "full_node"
+    title:
+      type: "keyword_scan"
+      keywords: ["求职意向", "财务"]
+      value_scope: "keyword_substring"
+    phone:
+      type: "keyword_scan"
+      keywords: ["13800138000", "138"]
+      value_scope: "keyword_substring"
+    email:
+      type: "keyword_scan"
+      keywords: ["@qq.com", "@"]
+      value_scope: "keyword_substring"
+    summary:
+      type: "keyword_scan"
+      keywords: ["本人性格诚实稳重", "性格诚实"]
+      value_scope: "full_node"
+
+sections:
+  education:
+    header: "教育背景"
+    entry_schema:
+      school:
+        type: "keyword_scan"
+        keywords: ["大学", "学院", "传媒"]
+        value_scope: "keyword_substring"
+      major:
+        type: "keyword_scan"
+        keywords: ["设计", "艺术", "广告"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"
+
+  experience:
+    header: "工作经验"
+    entry_schema:
+      company:
+        type: "keyword_scan"
+        keywords: ["公司", "科技", "信息"]
+        value_scope: "keyword_substring"
+      role:
+        type: "keyword_scan"
+        keywords: ["设计", "专员", "助理"]
+        value_scope: "keyword_substring"
+    item_separator: "paragraph"
+
+  honors:
+    header: "奖项荣誉"
+    type: "section_replace"
+
+  skills:
+    header: "掌握技能"
+    type: "section_replace"

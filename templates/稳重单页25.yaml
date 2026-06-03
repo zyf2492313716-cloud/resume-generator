@@ -1,0 +1,105 @@
+version: '1.0'
+template_name: 稳重单页25
+style_group: 稳重
+fallback: false
+basic_info:
+  fields:
+    name:
+      type: keyword_scan
+      keywords:
+      - 校园经历
+      value_scope: full_node
+    title:
+      type: label_inline
+      pattern: 求职意向
+    phone:
+      type: pattern_match
+      pattern_type: phone
+    email:
+      type: pattern_match
+      pattern_type: email
+    summary:
+      type: section_replace
+      section: 自我评价
+sections:
+  studentWork:
+    header: 校园经历
+    entry_schema:
+      organization:
+        type: keyword_scan
+        keywords:
+        - 学生会
+        - 社团
+        - 协会
+        - 中心
+        - 组织
+        value_scope: keyword_substring
+      role:
+        type: keyword_scan
+        keywords:
+        - 部长
+        - 副部
+        - 主席
+        - 副主席
+        - 助理
+        - 干事
+        - 成员
+        value_scope: keyword_substring
+    item_separator: paragraph
+  skills:
+    header: 技能证书
+    type: section_replace
+  experience:
+    header: 实习经历
+    entry_schema:
+      company:
+        type: keyword_scan
+        keywords:
+        - 公司
+        - 科技
+        - 企业
+        - 集团
+        - 有限
+        - 研究院
+        - 医院
+        - 银行
+        value_scope: keyword_substring
+      role:
+        type: keyword_scan
+        keywords:
+        - 经理
+        - 助理
+        - 总监
+        - 专员
+        - 工程师
+        - 实习
+        - 主管
+        value_scope: keyword_substring
+    item_separator: paragraph
+  education:
+    header: 教育背景
+    entry_schema:
+      school:
+        type: keyword_scan
+        keywords:
+        - 大学
+        - 学院
+        - 学校
+        value_scope: keyword_substring
+      major:
+        type: keyword_scan
+        keywords:
+        - 专业
+        - 工程
+        - 管理
+        - 设计
+        value_scope: keyword_substring
+      degree:
+        type: keyword_scan
+        keywords:
+        - 本科
+        - 硕士
+        - 博士
+        - 学士
+        value_scope: keyword_substring
+    item_separator: paragraph
