@@ -189,15 +189,11 @@ export function parseWithLocalRules(text) {
 
   const phoneRegex = /(1[3-9]\d{9})/;
   const phoneMatch = text.match(phoneRegex);
-  if (phoneMatch) {
-    result.basicInfo.phone = phoneMatch[1];
-  }
+  if (phoneMatch) result.basicInfo.phone = phoneMatch[1];
 
   const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z]{2,6})/;
   const emailMatch = text.match(emailRegex);
-  if (emailMatch) {
-    result.basicInfo.email = emailMatch[1];
-  }
+  if (emailMatch) result.basicInfo.email = emailMatch[1];
 
   const nameBlacklist = ["求职", "简历", "意向", "电话", "邮箱", "自我", "评价", "总结", "个人"];
   for (let i = 0; i < Math.min(lines.length, 5); i++) {
@@ -207,10 +203,8 @@ export function parseWithLocalRules(text) {
       break;
     }
   }
-  if (!result.basicInfo.name && lines[0]) {
-    if (lines[0].length < 8 && !lines[0].includes(":") && !lines[0].includes("：")) {
-      result.basicInfo.name = lines[0];
-    }
+  if (!result.basicInfo.name && lines[0] && lines[0].length < 8 && !lines[0].includes(":") && !lines[0].includes("：")) {
+    result.basicInfo.name = lines[0];
   }
 
   const titleRegex = /(意向|求职意向|期望职位|岗位|职务|职位|方向)[:：]?\s*([^\n,，|]+)/i;
@@ -218,28 +212,44 @@ export function parseWithLocalRules(text) {
   if (titleMatch) {
     result.basicInfo.title = titleMatch[2].trim();
   } else {
-    const jobKeywords = ["工程师", "开发", "设计师", "运营", "经理", "产品", "文秘", "选调生", "专员", "教师"];
-    for (let i = 0; i < Math.min(lines.length, 4); i++) {
-      const line = lines[i];
-      if (jobKeywords.some(key => line.includes(key)) && line.length < 15 && !line.includes("经历") && !line.includes("项目")) {
-        result.basicInfo.title = line;
-        break;
+    const titleFromEdu = text.match(/[··]\s*([^\s·（（]{2,10})\s*[（(]/);
+    if (titleFromEdu) {
+      result.basicInfo.title = titleFromEdu[1].trim();
+    } else {
+      const jobKeywords = ["工程师", "开发", "设计师", "运营", "经理", "产品", "文秘", "选调生", "专员", "教师", "预防医学", "临床", "药学", "护理", "数据", "研究", "分析"];
+      for (let i = 0; i < Math.min(lines.length, 6); i++) {
+        const line = lines[i];
+        if (jobKeywords.some(key => line.includes(key)) && line.length < 15 && !line.includes("经历") && !line.includes("项目") && !line.includes("科研")) {
+          result.basicInfo.title = line;
+          break;
+        }
       }
     }
   }
 
-  const skillKeywords = ["技能", "熟悉", "掌握", "精通", "熟练", "精通", "工具", "框架", "语言"];
   const skillLines = [];
+  let inSkillSection = false;
   lines.forEach(line => {
-    if (skillKeywords.some(keyword => line.includes(keyword)) && line.length > 5 && line.length < 150) {
-      let cleaned = line.replace(/^(专业技能|个人技能|熟练掌握|熟悉|精通|掌握)[:：]?\s*/i, "");
-      skillLines.push(cleaned);
+    if (/^(专业技能|个人技能|掌握技能|核心技能)/.test(line) && line.length < 10) {
+      inSkillSection = true;
+      return;
+    }
+    if (inSkillSection) {
+      if (/^(科研|实习|工作|项目|学生工作|荣誉|教育|社会实践)/.test(line) && line.length < 10) {
+        inSkillSection = false;
+        return;
+      }
+      const cleaned = line.replace(/^[-•·*]\s*/, "").trim();
+      if (cleaned) {
+        const parts = cleaned.split(/[,，、;；]/).map(s => s.trim()).filter(s => s && s.length > 1);
+        parts.forEach(p => {
+          if (!skillLines.some(existing => existing.includes(p))) skillLines.push(p);
+        });
+      }
     }
   });
   if (skillLines.length > 0) {
-    result.skills = skillLines.slice(0, 5);
-  } else {
-    result.skills = ["熟练掌握核心业务技能", "精通所用主流技术", "具备良好的团队协作与沟通能力"];
+    result.skills = skillLines.slice(0, 8);
   }
 
   let currentSection = "";
@@ -247,81 +257,102 @@ export function parseWithLocalRules(text) {
   let currentExp = null;
   let currentProj = null;
   let summaryLines = [];
+  let expAppendOnly = false;
 
-  const eduTitles = ["教育", "背景", "学校", "学历"];
-  const expTitles = ["工作", "经历", "实践", "职业", "公司"];
-  const projTitles = ["项目", "研发", "系统", "开发"];
-  const summaryTitles = ["自我", "评价", "个人", "总结"];
+  function detectSection(line) {
+    const t = line.trim();
+    if (t.length >= 10) return "";
+    if (/^(教育背景|教育经历|学历教育)/.test(t)) return "edu";
+    if (/^(科研经历|科研项目)/.test(t)) return "proj";
+    if (/^(实习经历|工作经历|实践经历)/.test(t)) return "exp";
+    if (/^(学生工作|社会实践|学生活动)/.test(t)) return "exp-append";
+    if (/^(专业技能|掌握技能|核心技能)/.test(t)) return "edu-done";
+    if (/^(荣誉奖励|获奖情况|所获荣誉|荣誉)/.test(t)) return "";
+    if (/^(自我评价|个人总结|个人简介)/.test(t)) return "summary";
+    if (/^教育/.test(t) && t.length < 6) return "edu";
+    if (/^工作/.test(t) && t.length < 6) return "exp";
+    if (/^项目/.test(t) && t.length < 6) return "proj";
+    if (/^自我/.test(t) && t.length < 6) return "summary";
+    return "";
+  }
 
   lines.forEach(line => {
-    const lowerLine = line.toLowerCase();
-
-    if (eduTitles.some(t => lowerLine.includes(t)) && lowerLine.length < 8) {
-      currentSection = "edu";
-      return;
-    }
-    if (expTitles.some(t => lowerLine.includes(t)) && lowerLine.length < 8) {
-      currentSection = "exp";
-      return;
-    }
-    if (projTitles.some(t => lowerLine.includes(t)) && lowerLine.length < 8) {
-      currentSection = "proj";
-      return;
-    }
-    if (summaryTitles.some(t => lowerLine.includes(t)) && lowerLine.length < 8) {
-      currentSection = "summary";
+    const section = detectSection(line);
+    if (section) {
+      currentSection = section === "exp-append" ? "exp" : section;
+      expAppendOnly = section === "exp-append";
       return;
     }
 
     if (currentSection === "edu") {
-      if (line.includes("大学") || line.includes("学院")) {
+      if ((line.includes("大学") || line.includes("学院")) && line.length < 40 && !/^(交流|交换|访学|暑期)/.test(line)) {
         if (currentEdu) result.education.push(currentEdu);
-
         let degree = "本科";
         if (line.includes("硕士") || line.includes("研究生")) degree = "硕士";
         else if (line.includes("博士")) degree = "博士";
         else if (line.includes("大专") || line.includes("专科")) degree = "大专";
-
-        const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?\d{4}[.\-/]\d{2})/);
-        const date = dateMatch ? dateMatch[1] : "2020.09 - 2024.06";
-
-        const parts = line.split(/[\s,，|]+/).filter(p => p !== "");
-        const school = parts.find(p => p.includes("大学") || p.includes("学院")) || parts[0] || "高等学府";
-        const major = parts.find(p => !p.includes("大学") && !p.includes("学院") && !p.includes("硕士") && !p.includes("本科") && !p.includes("博士") && !p.includes("-") && !p.includes(".")) || "相关专业";
-
+        const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?(?:\d{4}[.\-/]\d{2}|至今|毕业))/);
+        const date = dateMatch ? dateMatch[1] : "";
+        let school = "", major = "";
+        if (line.includes("|")) {
+          const parts = line.split("|").map(s => s.trim());
+          school = parts.find(p => p.includes("大学") || p.includes("学院")) || parts[0] || "";
+          const rest = parts.filter(p => p !== school && !/^\d{4}/.test(p)).join(" ");
+          const mm = rest.match(/^([^\s·（(]+)/);
+          major = mm ? mm[1] : "";
+        } else {
+          const parts = line.split(/[\s,，|]+/).filter(p => p !== "");
+          school = parts.find(p => p.includes("大学") || p.includes("学院")) || parts[0] || "";
+          major = parts.find(p => !p.includes("大学") && !p.includes("学院") && !/^(硕士|本科|博士|大专|专科)$/.test(p) && !/^\d{4}/.test(p) && p.length < 10) || "";
+        }
         currentEdu = { school, major, degree, date, description: "" };
       } else if (currentEdu) {
         currentEdu.description += (currentEdu.description ? "\n" : "") + line;
       }
     }
     else if (currentSection === "exp") {
-      if (line.includes("公司") || line.includes("集团") || line.includes("机构")) {
+      const pipeParts = line.split("|").map(s => s.trim());
+      const hasDate = /\d{4}[.\-/]/.test(line);
+      const hasInstitution = /(公司|集团|中心|医院|局|疾控|大学|学院|机构|署|办)/.test(line);
+      if (!expAppendOnly && pipeParts.length >= 2 && (hasDate || hasInstitution || pipeParts[0].length < 20)) {
         if (currentExp) result.experience.push(currentExp);
-
         const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?(?:\d{4}[.\-/]\d{2}|至今))/);
-        const date = dateMatch ? dateMatch[1] : "2024.07 - 至今";
-
+        currentExp = {
+          company: pipeParts[0].replace(/^[\d]+[.、\s)]*/, "").trim() || "",
+          role: pipeParts[1] || "",
+          date: dateMatch ? dateMatch[1] : "",
+          description: ""
+        };
+      } else if (!expAppendOnly && hasInstitution && line.length < 40) {
+        if (currentExp) result.experience.push(currentExp);
+        const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?(?:\d{4}[.\-/]\d{2}|至今))/);
         const parts = line.split(/[\s,，|]+/).filter(p => p !== "");
-        const company = parts.find(p => p.includes("公司") || p.includes("集团")) || parts[0] || "创新企业";
-        const role = parts.find(p => !p.includes("公司") && !p.includes("集团") && !p.includes("至今") && !p.includes("-") && !p.includes(".")) || "核心开发人员";
-
-        currentExp = { company, role, date, description: "" };
+        const company = (parts.find(p => /(公司|集团|中心|医院|局|疾控|大学|学院|机构|署|办)/.test(p)) || parts[0] || "").replace(/^[\d]+[.、\s)]*/, "").trim();
+        const role = parts.find(p => !/(公司|集团|中心|医院|局|疾控|大学|学院|机构|署|办)/.test(p) && !p.includes("至今") && !/^\d{4}/.test(p) && !/^[.\-/]/.test(p)) || "";
+        currentExp = { company, role, date: dateMatch ? dateMatch[1] : "", description: "" };
       } else if (currentExp) {
         currentExp.description += (currentExp.description ? "\n" : "") + line;
       }
     }
     else if (currentSection === "proj") {
-      if (line.includes("项目") || line.includes("系统") || line.includes("平台") || line.includes("应用")) {
+      const pipeParts = line.split("|").map(s => s.trim());
+      const hasDate = /\d{4}[.\-/]/.test(line);
+      if (pipeParts.length >= 2 && (hasDate || pipeParts[0].length < 30)) {
         if (currentProj) result.projects.push(currentProj);
-
         const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?(?:\d{4}[.\-/]\d{2}|至今))/);
-        const date = dateMatch ? dateMatch[1] : "2024.01 - 2024.06";
-
+        currentProj = {
+          name: pipeParts[0] || "",
+          role: pipeParts.length >= 3 ? pipeParts[1] : (line.includes("负责人") ? "项目负责人" : "核心成员"),
+          date: dateMatch ? dateMatch[1] : "",
+          description: ""
+        };
+      } else if ((line.includes("项目") || line.includes("系统") || line.includes("平台") || line.includes("应用")) && line.length < 40) {
+        if (currentProj) result.projects.push(currentProj);
+        const dateMatch = line.match(/(\d{4}[.\-/]\d{2}.*?(?:\d{4}[.\-/]\d{2}|至今))/);
         const parts = line.split(/[\s,，|]+/).filter(p => p !== "");
-        const name = parts.find(p => p.includes("项目") || p.includes("系统") || p.includes("平台") || p.includes("应用")) || parts[0] || "创新研发项目";
-        const role = parts.find(p => p !== name && !p.includes("至今") && !p.includes("-") && !p.includes(".")) || "核心成员";
-
-        currentProj = { name, role, date, description: "" };
+        const name = parts.find(p => p.includes("项目") || p.includes("系统") || p.includes("平台") || p.includes("应用")) || parts[0] || "";
+        const role = parts.find(p => p !== name && !p.includes("至今") && !/^\d{4}/.test(p) && !/^[.\-/]/.test(p)) || "核心成员";
+        currentProj = { name, role, date: dateMatch ? dateMatch[1] : "", description: "" };
       } else if (currentProj) {
         currentProj.description += (currentProj.description ? "\n" : "") + line;
       }
@@ -335,21 +366,14 @@ export function parseWithLocalRules(text) {
   if (currentExp) result.experience.push(currentExp);
   if (currentProj) result.projects.push(currentProj);
 
-  if (summaryLines.length > 0) {
-    result.basicInfo.summary = summaryLines.join("\n");
-  } else {
-    result.basicInfo.summary = "本人工作认真负责，具有极强的学习和实践能力，擅长在紧凑节奏下高效解决问题。";
+  if (summaryLines.length > 0) result.basicInfo.summary = summaryLines.join("\n");
+  if (!result.basicInfo.summary) {
+    const summaryPrefix = text.match(/(已获保研资格|保研|推免|推研)/);
+    if (summaryPrefix) result.basicInfo.summary = summaryPrefix[1];
   }
 
-  if (result.education.length === 0) {
-    result.education.push({ school: "某重点大学", major: "本专业", degree: "学士学位", date: "2020.09 - 2024.06", description: "主修核心课程，表现优异。" });
-  }
-  if (result.experience.length === 0) {
-    result.experience.push({ company: "某领先企业", role: "关键岗", date: "2024.07 - 至今", description: "负责日常核心业务处理。" });
-  }
-  if (result.projects.length === 0) {
-    result.projects.push({ name: "行业大型实践项目", role: "项目组员", date: "2024.01 - 2024.05", description: "参与项目从立项到上线全链路研发。" });
-  }
+  result.projects.forEach(p => { p.name = p.name.replace(/^[\d]+[.、\s)]*/, "").trim(); });
+  result.experience.forEach(e => { e.company = e.company.replace(/^[\d]+[.、\s)]*/, "").trim(); });
 
   return result;
 }

@@ -32,13 +32,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedTemplate || !window.electronAPI) {
+      setPreviewLoading(false);
+      return;
+    }
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current);
     }
     previewTimerRef.current = setTimeout(() => {
-      if (selectedTemplate && window.electronAPI) {
-        setPreviewLoading(true);
-        window.electronAPI.renderPreview(selectedTemplate.name, resumeData).then(result => {
+      setPreviewLoading(true);
+      const dataForIpc = JSON.parse(JSON.stringify(resumeData));
+      window.electronAPI.renderPreview(selectedTemplate.name, dataForIpc)
+        .then(result => {
           if (result.success) {
             setPreviewHtml(result.html);
           } else {
@@ -46,8 +51,12 @@ export default function App() {
             showNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
           }
           setPreviewLoading(false);
+        })
+        .catch(err => {
+          console.error('Preview IPC error:', err);
+          showNotification({ type: 'warning', message: `预览 IPC 错误: ${err.message}` });
+          setPreviewLoading(false);
         });
-      }
     }, 800);
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);

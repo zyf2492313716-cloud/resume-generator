@@ -214,8 +214,11 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification 
               {resumeData.skills.map((s, idx) => (
                 <div key={idx} style={{ display: 'flex', gap: '6px', marginBottom: '6px', alignItems: 'center' }}>
                   <input type="text" value={s} onChange={e => {
-                    const arr = [...resumeData.skills]; arr[idx] = e.target.value;
-                    setResumeData(prev => ({ ...prev, skills: arr }));
+                    setResumeData(prev => {
+                      const arr = [...prev.skills];
+                      arr[idx] = e.target.value;
+                      return { ...prev, skills: arr };
+                    });
                   }} style={{ ...smallInput, flex: 1 }} />
                   <button onClick={() => removeSkill(idx)} style={{
                     background: 'rgba(239,68,68,0.15)', border: 'none', color: 'var(--color-danger)',

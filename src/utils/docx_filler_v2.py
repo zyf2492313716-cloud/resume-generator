@@ -102,10 +102,36 @@ def fill_template(template_path, data, output_path):
         KNOWN_NAMES = [
             '宋艾嘉', '肖颖馨', '韩志弘', '李自强', '张三', '李四', '王五',
             '赵六', '关睢尔', '陈小明', '刘小红', '周洁', '吴芳',
+            '白晓云', '王若琳', '沈慧美', '林晓歌', '林月明', '柳云萧',
+            '苏语凝', '钟小艾', '冯青', '张小泉', '云海',
         ]
         for pi, t_node, txt in para_texts:
             if txt in KNOWN_NAMES:
                 set_node_text(t_node, name)
+        # Build set of known title keywords for fallback exclusion
+        KNOWN_TITLES_LOOKUP = set([
+            '平面设计', '网页设计师', 'UI设计师',
+            '产品经理', '软件工程师', '前端工程师', '后端工程师',
+            '市场专员', '销售专员', '策划专员', '行政主管', '行政人员', '行政助理',
+            '美术设计', '插画师', '实习护士', '护理实习',
+        ])
+        # Fallback: replace any isolated 2-4 Chinese char text that is not a known label/title
+        LABEL_WORDS = {
+            '自我评价', '基本信息', '求职意向', '兴趣爱好', '荣誉证书', '职业技能',
+            '教育背景', '工作经历', '专业技能', '项目经验', '联系方式', '个人总结',
+            '个人简介', '院校', '专业', '学历', '年龄', '籍贯', '电话', '邮箱', '姓名',
+            '出生日期', '基本资料', '基础信息', '关于我', '毕业院校', '工作描述',
+            '工作经验', '实习经历', '教育经历', '校内实践', '校园活动', '掌握技能',
+            '技能证书', '证书奖励', '荣誉奖励', '荣誉奖项', '获奖证书', '个人能力',
+            '个人技能', '团队协作', '团队能力', '组织能力', '沟通能力', '学习能力',
+            '适应能力', '创新能力', '领导能力', '语言能力', '作品链接', '政治面貌',
+            '出生', '民族', '已婚', '未婚', '中共党员', '预备党员', '群众',
+            '大学本科', '硕士研究生', '博士研究生', '本科', '硕士', '博士',
+        }
+        for pi, t_node, txt in para_texts:
+            if len(txt) >= 2 and len(txt) <= 4 and all('\u4e00' <= c <= '\u9fff' for c in txt):
+                if txt not in LABEL_WORDS and txt not in KNOWN_TITLES_LOOKUP:
+                    set_node_text(t_node, name)
 
     # --- Pass 4: Known placeholder titles ---
     if title:
@@ -162,7 +188,7 @@ def fill_template(template_path, data, output_path):
 
     # --- Pass 8: Section fill (education/experience) ---
     _fill_section_nodes(para_texts, edus, {
-        'school': ['学校', '大学', '学院', 'School'],
+        'school': ['学校', '院校', '大学', '学院', '毕业院校', 'School'],
         'major': ['专业', 'Major'],
         'degree': ['本科', '硕士', '博士', '学士', '专科', '学历', 'Degree'],
     })
