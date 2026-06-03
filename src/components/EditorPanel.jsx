@@ -1,20 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Sparkles, Plus, Trash2, ArrowUp, ArrowDown,
+  Sparkles, Plus, Trash2, ArrowUp, ArrowDown, Settings,
   User, Briefcase, GraduationCap, FolderGit, Code
 } from 'lucide-react';
 import { parseResumeText } from '../utils/aiParser';
 
-export default function EditorPanel({ resumeData, setResumeData, onNotification }) {
+export default function EditorPanel({ resumeData, setResumeData, onNotification, onOpenApiConfig }) {
   const [activeTab, setActiveTab] = useState('form');
   const [aiInput, setAiInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
+  const [apiConfig, setApiConfig] = useState(null);
+
+  useEffect(() => {
+    if (window.electronAPI) {
+      window.electronAPI.getApiConfig().then(setApiConfig);
+    }
+  }, []);
 
   const handleAiExtract = async () => {
     setIsParsing(true);
     onNotification({ type: 'info', message: '正在解析...' });
     try {
-      const parsed = await parseResumeText(aiInput, { apiUrl: '', apiKey: '', modelName: '' });
+      const config = apiConfig || { apiUrl: '', apiKey: '', modelName: '' };
+      const parsed = await parseResumeText(aiInput, config);
       setResumeData(parsed);
       onNotification({ type: 'success', message: '解析成功，已填入表单' });
       setActiveTab('form');
@@ -102,8 +110,25 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification 
 
         {activeTab === 'ai' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>
-              粘贴 AI 生成的简历文稿，自动解析填入表单
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>
+                粘贴简历文稿，自动解析填入表单
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{
+                  fontSize: '10px', padding: '2px 6px', borderRadius: '4px',
+                  background: apiConfig?.apiUrl ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)',
+                  color: apiConfig?.apiUrl ? '#34d399' : '#fbbf24'
+                }}>
+                  {apiConfig?.apiUrl ? 'AI 已配置' : '本地解析'}
+                </span>
+                <button onClick={onOpenApiConfig} title="AI 接口配置" style={{
+                  background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '4px',
+                  padding: '4px', cursor: 'pointer', color: '#9ca3af', display: 'flex'
+                }}>
+                  <Settings size={14} />
+                </button>
+              </div>
             </div>
             <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
               placeholder="例如：我叫李明，硕士毕业于复旦大学计算机系..."

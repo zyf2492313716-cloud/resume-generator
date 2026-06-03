@@ -78,6 +78,10 @@
       {
         "from": "src/utils",
         "to": "utils"
+      },
+      {
+        "from": "templates",
+        "to": "templates"
       }
     ],
     "asar": false

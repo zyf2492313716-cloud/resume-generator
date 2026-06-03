@@ -94,8 +94,23 @@ async function parseWithLLM(text, config) {
 2. 保持经历的简洁性，以匹配保持在一页内的约束。
 3. 如果某些字段在输入中不存在，请留空串 ""，不要随便虚构。`;
 
+  function normalizeUrl(url) {
+    if (!url) return '';
+    url = url.replace(/\/+$/, '');
+    if (url.includes('/chat/completions') || url.match(/\/v\d+\/chat\/completions$/)) return url;
+    if (url.includes('api.openai.com')) return url + '/v1/chat/completions';
+    if (url.includes('api.deepseek.com')) return url + '/chat/completions';
+    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
+      return url + '/v1/chat/completions';
+    }
+    return url + '/chat/completions';
+  }
+
   try {
-    const response = await fetch(apiUrl, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(normalizeUrl(apiUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -109,15 +124,19 @@ async function parseWithLLM(text, config) {
         ],
         temperature: 0.1,
         response_format: { type: "json_object" }
-      })
+      }),
+      signal: controller.signal
     });
 
+    clearTimeout(timeout);
+
     if (!response.ok) {
-      throw new Error(`API 请求失败: 状态码 ${response.status}`);
+      const errBody = await response.text().catch(() => '');
+      throw new Error(`API 请求失败: ${response.status} ${errBody.slice(0, 200)}`);
     }
 
     const data = await response.json();
-    let jsonStr = data.choices[0].message.content;
+    let jsonStr = data.choices?.[0]?.message?.content || '';
 
     jsonStr = jsonStr.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
 
@@ -125,6 +144,9 @@ async function parseWithLLM(text, config) {
 
     return sanitizeParsedData(parsed);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('API 请求超时（30秒）');
+    }
     console.error("AI 接口解析失败，将使用本地备用解析器:", err);
     throw err;
   }

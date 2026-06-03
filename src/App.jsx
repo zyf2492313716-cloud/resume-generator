@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
-import { Bell } from 'lucide-react';
+import { Bell, Settings } from 'lucide-react';
 import EditorPanel from './components/EditorPanel';
 import PreviewPanel from './components/PreviewPanel';
 import TemplatePanel from './components/TemplatePanel';
 import UpdateNotification from './components/UpdateNotification';
+import ApiConfigModal from './components/ApiConfigModal';
 import { DEFAULT_RESUME_DATA } from './utils/aiParser';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
   const [previewHtml, setPreviewHtml] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [showApiConfig, setShowApiConfig] = useState(false);
   const previewTimerRef = React.useRef(null);
 
   const loadTemplates = useCallback(() => {
@@ -94,6 +96,7 @@ export default function App() {
         resumeData={resumeData}
         setResumeData={setResumeData}
         onNotification={showNotification}
+        onOpenApiConfig={() => setShowApiConfig(true)}
       />
 
       <PreviewPanel
@@ -112,6 +115,10 @@ export default function App() {
       />
 
       <UpdateNotification />
+
+      {showApiConfig && (
+        <ApiConfigModal onClose={() => setShowApiConfig(false)} onNotification={showNotification} />
+      )}
 
       <style>{`
         @keyframes slideDown {

@@ -6,6 +6,9 @@ const { autoUpdater } = require('electron-updater');
 const mammoth = require('mammoth');
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const BUNDLED_TEMPLATES = app.isPackaged
+  ? path.join(process.resourcesPath, 'templates')
+  : path.join(__dirname, 'templates');
 const FILLER_SCRIPT = app.isPackaged
   ? path.join(process.resourcesPath, 'utils', 'docx_filler_v2.py')
   : path.join(__dirname, 'src/utils/docx_filler_v2.py');
@@ -20,15 +23,18 @@ function saveConfig(cfg) {
 function getTemplatesDir() {
   const cfg = loadConfig();
   if (cfg.templatesDir && fs.existsSync(cfg.templatesDir)) return cfg.templatesDir;
-  // Auto-detect common locations
   const candidates = [
+    BUNDLED_TEMPLATES,
     path.join(app.getPath('home'), 'Downloads', '1 单页简历'),
     path.join(app.getPath('home'), 'Downloads', '单页简历'),
     path.join(app.getPath('desktop'), '1 单页简历'),
     path.join(__dirname, 'templates'),
   ];
   for (const dir of candidates) {
-    if (fs.existsSync(dir)) { saveConfig({ ...cfg, templatesDir: dir }); return dir; }
+    if (fs.existsSync(dir)) {
+      const hasDocx = fs.readdirSync(dir).some(f => f.endsWith('.docx'));
+      if (hasDocx) { saveConfig({ ...cfg, templatesDir: dir }); return dir; }
+    }
   }
   return null;
 }
@@ -169,6 +175,26 @@ ipcMain.handle('select-template-dir', async () => {
   cfg.templatesDir = filePaths[0];
   saveConfig(cfg);
   return { success: true, count: scanTemplates().length };
+});
+
+ipcMain.handle('get-api-config', async () => {
+  const cfg = loadConfig();
+  return {
+    provider: cfg.aiProvider || 'custom',
+    apiUrl: cfg.apiUrl || '',
+    apiKey: cfg.apiKey || '',
+    modelName: cfg.modelName || 'deepseek-chat'
+  };
+});
+
+ipcMain.handle('save-api-config', async (event, apiCfg) => {
+  const cfg = loadConfig();
+  cfg.aiProvider = apiCfg.provider;
+  cfg.apiUrl = apiCfg.apiUrl;
+  cfg.apiKey = apiCfg.apiKey;
+  cfg.modelName = apiCfg.modelName;
+  saveConfig(cfg);
+  return { success: true };
 });
 
 ipcMain.handle('render-preview', async (event, { templateName, resumeData }) => {
