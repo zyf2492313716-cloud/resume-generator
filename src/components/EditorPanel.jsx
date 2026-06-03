@@ -63,12 +63,25 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
       const config = apiConfig || { apiUrl: '', apiKey: '', modelName: '' };
       const { data, source, error } = await parseResumeText(aiInput, config);
       setResumeData(data);
+
+      const counts = [];
+      if (data.basicInfo.name) counts.push(`姓名(${data.basicInfo.name})`);
+      if (data.basicInfo.title) counts.push(`意向(${data.basicInfo.title})`);
+      if (data.education.length) counts.push(`教育(${data.education.length}条)`);
+      if (data.experience.length) counts.push(`工作(${data.experience.length}条)`);
+      if (data.projects.length) counts.push(`项目(${data.projects.length}条)`);
+      if (data.research.length) counts.push(`科研(${data.research.length}条)`);
+      if (data.studentWork.length) counts.push(`学生(${data.studentWork.length}条)`);
+      if (data.honors.length) counts.push(`荣誉(${data.honors.length}条)`);
+      if (data.skills.length) counts.push(`技能(${data.skills.length}项)`);
+      const summary = counts.length > 0 ? `已提取: ${counts.join(', ')}` : '未提取到结构化信息';
+
       if (source === 'fallback') {
-        onNotification({ type: 'warning', message: `AI 解析失败，已降级为本地解析${error ? '（' + error + '）' : ''}，请检查 API 配置` });
+        onNotification({ type: 'warning', message: `AI 解析失败(${error || '未知错误'})，${summary}（本地降级）` });
       } else if (source === 'api') {
-        onNotification({ type: 'success', message: 'AI 解析成功，已填入表单' });
+        onNotification({ type: 'success', message: `AI 解析成功: ${summary}` });
       } else {
-        onNotification({ type: 'success', message: '本地解析成功，已填入表单' });
+        onNotification({ type: counts.length > 0 ? 'success' : 'warning', message: summary });
       }
       setActiveTab('form');
     } catch (err) {
@@ -187,7 +200,7 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
               </div>
             </div>
             <textarea value={aiInput} onChange={e => setAiInput(e.target.value)}
-              placeholder="粘贴简历文字内容、Word 文本、或 AI 生成的简历..."
+              placeholder="粘贴简历文字，支持以下格式：\n- 分段式简历（教育背景 / 科研经历 / 实习经历...）\n- 纯文本简历（姓名 + 电话 + 邮箱 + 经历描述）\n- 其他 AI 生成的简历文本"
               style={{ width: '100%', height: '240px', background: 'rgba(0,0,0,0.3)',
                 border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px',
                 color: '#fff', fontSize: '13px', resize: 'none', outline: 'none', fontFamily: 'inherit'
