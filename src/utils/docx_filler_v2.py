@@ -15,6 +15,9 @@ def fill_template(template_path, data, output_path):
     edus = data.get('education', [])
     exps = data.get('experience', [])
     projs = data.get('projects', [])
+    research_list = data.get('research', [])
+    sw_list = data.get('studentWork', [])
+    honors_list = data.get('honors', [])
     skills = data.get('skills', [])
 
     root = ET.fromstring(doc_xml.encode('utf-8'))
@@ -127,6 +130,8 @@ def fill_template(template_path, data, output_path):
             '适应能力', '创新能力', '领导能力', '语言能力', '作品链接', '政治面貌',
             '出生', '民族', '已婚', '未婚', '中共党员', '预备党员', '群众',
             '大学本科', '硕士研究生', '博士研究生', '本科', '硕士', '博士',
+            '科研经历', '科研项目', '学生工作', '社会实践', '学生活动',
+            '组织名称', '所属部门', '社团名称',
         }
         for pi, t_node, txt in para_texts:
             if len(txt) >= 2 and len(txt) <= 4 and all('\u4e00' <= c <= '\u9fff' for c in txt):
@@ -186,7 +191,7 @@ def fill_template(template_path, data, output_path):
                         set_node_text(t_node, summary)
                         break
 
-    # --- Pass 8: Section fill (education/experience) ---
+    # --- Pass 8: Section fill (education/experience/research/studentWork) ---
     _fill_section_nodes(para_texts, edus, {
         'school': ['学校', '院校', '大学', '学院', '毕业院校', 'School'],
         'major': ['专业', 'Major'],
@@ -195,6 +200,43 @@ def fill_template(template_path, data, output_path):
     _fill_section_nodes(para_texts, exps, {
         'company': ['公司', '科技', '企业', '集团', '网络', '有限', '工作室', 'Company'],
     })
+    _fill_section_nodes(para_texts, research_list, {
+        'name': ['课题', '项目', '研究', '科研', 'Name'],
+        'role': ['负责人', '角色', '职务', 'Role'],
+    })
+    _fill_section_nodes(para_texts, sw_list, {
+        'organization': ['组织', '社团', '学生', '部门', '中心', 'Organization'],
+        'role': ['职务', '职位', 'Role'],
+    })
+    _fill_section_nodes(para_texts, projs, {
+        'name': ['项目', '名称', 'Name'],
+        'role': ['角色', '职务', 'Role'],
+    })
+
+    # --- Pass 9: Honors fill ---
+    if honors_list:
+        HONOR_LABELS = ['荣誉奖励', '荣誉奖项', '获奖证书', '证书奖励', '获奖情况', '所获荣誉', '荣誉证书']
+        honors_text = '\n'.join(
+            f'• {h}' if not h.startswith('•') and not h.startswith('-') else h
+            for h in honors_list
+        )
+        for pi, t_node, txt in para_texts:
+            if txt in HONOR_LABELS:
+                # Replace adjacent list items after the label
+                for j in range(pi + 1, len(paragraphs)):
+                    p = paragraphs[j]
+                    honor_nodes = [(t, n.text or '') for t in p.iter(f'{{{NS}}}t') if (n.text or '').strip()]
+                    if not honor_nodes:
+                        continue
+                    is_label = any(honor_nodes[0][1].strip() in HONOR_LABELS for _ in [0])
+                    if is_label:
+                        break
+                    for t_node, _ in honor_nodes:
+                        t_node.text = ''
+                    if honor_nodes:
+                        honor_nodes[0][0].text = honors_text
+                    break
+                break
 
     # Serialize
     modified_xml = ET.tostring(root, encoding='unicode')
