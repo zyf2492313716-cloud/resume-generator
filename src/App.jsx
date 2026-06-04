@@ -12,7 +12,7 @@ export default function App() {
   const [resumeData, setResumeData] = useState(DEFAULT_RESUME_DATA);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateList, setTemplateList] = useState([]);
-  const [previewHtml, setPreviewHtml] = useState('');
+  const [previewDocxBase64, setPreviewDocxBase64] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showApiConfig, setShowApiConfig] = useState(false);
@@ -82,7 +82,7 @@ export default function App() {
       window.electronAPI.renderPreview(selectedTemplate.name, dataForIpc)
         .then(result => {
           if (result.success) {
-            setPreviewHtml(result.html);
+            setPreviewDocxBase64(result.docxBase64);
           } else {
             console.error('Preview error:', result.error);
             showNotification({ type: 'warning', message: `预览渲染失败: ${result.error}` });
@@ -136,7 +136,7 @@ export default function App() {
       />
 
       <PreviewPanel
-        previewHtml={previewHtml}
+        previewDocxBase64={previewDocxBase64}
         previewLoading={previewLoading}
         onNotification={showNotification}
         selectedTemplate={selectedTemplate}

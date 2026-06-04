@@ -302,12 +302,12 @@ ipcMain.handle('render-preview', async (event, { templateName, resumeData, layou
   if (!filled) return { success: false, error: '模板填充失败' };
 
   try {
-    const result = await mammoth.convertToHtml({ path: tempDocx });
+    const buffer = fs.readFileSync(tempDocx);
     try { fs.unlinkSync(tempDocx); } catch (e) {}
-    return { success: true, html: result.value };
+    return { success: true, docxBase64: buffer.toString('base64') };
   } catch (err) {
     try { fs.unlinkSync(tempDocx); } catch (e) {}
-    return { success: false, error: '预览转换失败: ' + err.message };
+    return { success: false, error: '读取预览 Word 失败: ' + err.message };
   }
 });
 
@@ -368,7 +368,7 @@ ipcMain.on('export-to-word', async (event, { templateName, resumeData, layoutAdj
   });
 });
 
-ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resumeData, layoutAdjustments }) => {
+ipcMain.on('print-to-pdf', async (event, { defaultFileName, htmlContent }) => {
   if (!mainWindow) return;
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: '导出 PDF',
@@ -380,34 +380,15 @@ ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resume
     return;
   }
   try {
-    // Find template and fill it
-    let html = '';
-    if (templateName && resumeData) {
-      const template = scanTemplates().find(t => t.name === templateName);
-      if (template) {
-        const tempDir = app.getPath('temp');
-        const tempDocx = path.join(tempDir, `pdf_${Date.now()}.docx`);
-        const filled = fillDocx(template.path, resumeData, tempDocx, layoutAdjustments);
-        if (filled) {
-          const result = await mammoth.convertToHtml({ path: tempDocx });
-          html = result.value;
-          try { fs.unlinkSync(tempDocx); } catch (e) {}
-        }
-      }
-    }
-    if (!html) {
-      // Fallback: capture main window content
-      html = '<p>简历内容</p>';
-    }
-
-    // Create HTML document with proper print styling
+    // Create HTML document with proper print styling from frontend HTML content
     const fullHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
       <style>
         @page { margin: 0; size: A4; }
-        body { margin: 0; padding: 40px; font-family: SimSun, serif; }
-        table { border-collapse: collapse; width: 100%; }
-        img { max-width: 100%; }
-      </style></head><body>${html}</body></html>`;
+        body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; }
+        .docx-wrapper { padding: 0 !important; background: transparent !important; box-sizing: border-box; box-shadow: none !important; }
+        .docx { box-shadow: none !important; border: none !important; margin: 0 !important; }
+        table { border-collapse: collapse; }
+      </style></head><body>${htmlContent || '<p>简历内容</p>'}</body></html>`;
 
     const tempHtml = path.join(app.getPath('temp'), `pdf_${Date.now()}.html`);
     fs.writeFileSync(tempHtml, fullHtml, 'utf-8');

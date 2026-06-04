@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, FileText, Loader, Eye, EyeOff, Palette, Type, Space, Camera } from 'lucide-react';
+import { Printer, FileText, Loader, Eye, EyeOff, Palette, Type, Space, Camera, Sparkles } from 'lucide-react';
+import { renderAsync } from 'docx-preview';
+import { polishText } from '../utils/aiParser';
 import InteractiveCanvas from './InteractiveCanvas';
 import SnapshotModal from './SnapshotModal';
 
 export default function PreviewPanel({
-  previewHtml,
+  previewDocxBase64,
   previewLoading,
   onNotification,
   selectedTemplate,
@@ -23,12 +25,19 @@ export default function PreviewPanel({
   const [spacingOffset, setSpacingOffset] = useState(0);
   const [showSnapshotModal, setShowSnapshotModal] = useState(false);
 
+  // AI Content Polish floating bubble state for flow layouts
+  const [polishState, setPolishState] = useState(null); // { id, x, y, text }
+  const [polishing, setPolishing] = useState(false);
+
+  const docxContainerRef = React.useRef(null);
+
   useEffect(() => {
     // Reset layout adjustments when the template changes
     setLayoutAdjustments({});
     setThemeColor('');
     setFontSizeOffset(0);
     setSpacingOffset(0);
+    setPolishState(null);
   }, [selectedTemplate?.name]);
 
   useEffect(() => {
@@ -43,6 +52,45 @@ export default function PreviewPanel({
 
     return () => cleanups.forEach(fn => fn());
   }, [onNotification]);
+
+  const isSpatial = engineType === 'spatial';
+  const a4Width = isSpatial ? '595px' : '794px';
+  const a4MinHeight = isSpatial ? '842px' : '1123px';
+
+  // 1:1 High fidelity render of docx in preview container via docx-preview
+  useEffect(() => {
+    if (isSpatial || !previewDocxBase64 || !docxContainerRef.current) return;
+    
+    // Base64 to ArrayBuffer conversion
+    const binaryString = atob(previewDocxBase64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const arrayBuffer = bytes.buffer;
+    
+    renderAsync(arrayBuffer, docxContainerRef.current, null, {
+      className: "docx",
+      inWrapper: false,
+      ignoreWidth: true,
+      ignoreHeight: false
+    }).then(() => {
+      const container = docxContainerRef.current;
+      if (container) {
+        container.addEventListener('dblclick', handleDocxDblClick);
+      }
+    }).catch(err => {
+      console.error("docx-preview render error:", err);
+      onNotification({ type: 'warning', message: `Word 高清预览渲染失败: ${err.message}` });
+    });
+    
+    return () => {
+      if (docxContainerRef.current) {
+        docxContainerRef.current.removeEventListener('dblclick', handleDocxDblClick);
+      }
+    };
+  }, [previewDocxBase64, isSpatial]);
 
   // Deep clone and obfuscate personal data fields for desensitized outputs
   const getDesensitizedData = (data) => {
@@ -63,16 +111,192 @@ export default function PreviewPanel({
     return copy;
   };
 
+  // Heuristic Semantic Source Sync Algorithm (Traverses and replaces matching nodes in resumeData)
+  const syncSemanticText = (data, oldText, newText) => {
+    const cleanOld = oldText.trim();
+    const cleanNew = newText.trim();
+    if (!cleanOld || cleanOld === cleanNew) return data;
+
+    const copy = JSON.parse(JSON.stringify(data));
+    let replaced = false;
+
+    const isMatch = (valStr, targetStr) => {
+      const v = valStr.trim();
+      const t = targetStr.trim();
+      if (!v || !t) return false;
+      return v === t || v.includes(t) || t.includes(v);
+    };
+
+    const traverse = (obj) => {
+      if (replaced) return;
+      for (const key in obj) {
+        if (replaced) return;
+        const val = obj[key];
+
+        if (typeof val === 'string') {
+          if (isMatch(val, cleanOld)) {
+            if (val.includes(cleanOld)) {
+              obj[key] = val.replace(cleanOld, cleanNew);
+            } else {
+              obj[key] = cleanNew;
+            }
+            replaced = true;
+            return;
+          }
+        } else if (Array.isArray(val)) {
+          for (let i = 0; i < val.length; i++) {
+            if (replaced) return;
+            if (typeof val[i] === 'string') {
+              if (isMatch(val[i], cleanOld)) {
+                if (val[i].includes(cleanOld)) {
+                  val[i] = val[i].replace(cleanOld, cleanNew);
+                } else {
+                  val[i] = cleanNew;
+                }
+                replaced = true;
+                return;
+              }
+            } else if (typeof val[i] === 'object' && val[i] !== null) {
+              traverse(val[i]);
+            }
+          }
+        } else if (typeof val === 'object' && val !== null) {
+          traverse(val);
+        }
+      }
+    };
+
+    traverse(copy);
+    return copy;
+  };
+
+  // Handle Double Click to edit non-spatial template text node on screen
+  const handleDocxDblClick = (e) => {
+    const target = e.target;
+    // Check if target is a leaf node containing clean text (no child elements)
+    if (!target || target.children.length > 0) return;
+    const text = target.innerText.trim();
+    if (!text) return;
+
+    const oldText = target.innerText;
+
+    target.setAttribute('data-editing', 'true');
+    target.id = 'temp_editing_node';
+
+    target.contentEditable = true;
+    target.focus();
+    
+    target.style.outline = '1.5px dashed #3b82f6';
+    target.style.cursor = 'text';
+
+    // Toggle floating AI polish menu
+    const container = document.querySelector('.a4-container');
+    if (container) {
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const relativeX = (targetRect.left + targetRect.width / 2 - containerRect.left) / canvasScale;
+      const relativeY = (targetRect.top - containerRect.top) / canvasScale;
+
+      setPolishState({
+        id: 'temp_editing_node',
+        x: relativeX,
+        y: relativeY - 15,
+        text: oldText
+      });
+    }
+
+    const handleBlur = () => {
+      // Small timeout to allow AI floating menu click events to process first
+      setTimeout(() => {
+        target.contentEditable = false;
+        target.style.outline = 'none';
+        target.style.cursor = 'default';
+        target.removeAttribute('data-editing');
+        target.removeAttribute('id');
+
+        const newText = target.innerText.trim();
+        if (newText && newText !== oldText) {
+          const updated = syncSemanticText(resumeData, oldText, newText);
+          setResumeData(updated);
+          onNotification({ type: 'success', message: '已实时同步修改至简历数据！' });
+        }
+      }, 250);
+    };
+
+    target.addEventListener('blur', handleBlur, { once: true });
+  };
+
+  // AI Content Polish for flow layout template text
+  const handleAIPolish = async (mode) => {
+    if (!polishState || polishing || !window.electronAPI) return;
+    
+    setPolishing(true);
+    try {
+      const config = await window.electronAPI.getApiConfig();
+      if (!config.apiUrl || !config.apiKey) {
+        onNotification({ type: 'warning', message: '⚠️ 请先配置 AI 大模型 API！点击左上角设置。' });
+        setPolishing(false);
+        return;
+      }
+      
+      onNotification({ type: 'info', message: `✨ AI 正在处理 (${mode === 'star' ? 'STAR改写' : mode === 'shorten' ? '精简篇幅' : '专业润色'})...` });
+      const polishedResult = await polishText(polishState.text, config, mode);
+      
+      // Update targeted node in docx-preview DOM
+      const targetNode = document.getElementById('temp_editing_node');
+      if (targetNode) {
+        targetNode.innerText = polishedResult;
+        const updated = syncSemanticText(resumeData, polishState.text, polishedResult);
+        setResumeData(updated);
+      }
+      
+      onNotification({ type: 'success', message: '✨ AI 内容重塑完成并自动保存！' });
+      setPolishState(null);
+    } catch (e) {
+      console.error("AI Flow Polish error:", e);
+      onNotification({ type: 'warning', message: `润色失败: ${e.message}` });
+    } finally {
+      setPolishing(false);
+    }
+  };
+
+  // 100% "What You See Is What You Get" high-fidelity PDF printing
   const handlePrint = () => {
+    let htmlContent = '';
+    
+    if (isSpatial) {
+      // Spatial mode: capture A4 sheet container
+      const sheetDom = document.querySelector('.a4-sheet');
+      if (sheetDom) {
+        const clone = sheetDom.cloneNode(true);
+        // Remove contentEditable & handles for clean output
+        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        clone.querySelectorAll('.resize-handle').forEach(el => el.remove());
+        htmlContent = clone.outerHTML;
+      }
+    } else {
+      // Flow layout template: capture docx-preview output
+      if (docxContainerRef.current) {
+        const clone = docxContainerRef.current.cloneNode(true);
+        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        htmlContent = clone.outerHTML;
+      }
+    }
+    
+    if (!htmlContent) {
+      onNotification({ type: 'warning', message: '生成打印文件内容为空，请稍后' });
+      return;
+    }
+
     const dataToExport = isDesensitized ? getDesensitizedData(resumeData) : resumeData;
     const defaultName = `${dataToExport.basicInfo.name || '我的'}_求职简历.pdf`;
     
     if (window.electronAPI) {
-      onNotification({ type: 'info', message: '正在生成 PDF...' });
-      window.electronAPI.printToPdf(defaultName, selectedTemplate?.name, dataToExport, layoutAdjustments);
+      onNotification({ type: 'info', message: '正在生成高保真 PDF...' });
+      window.electronAPI.printToPdf(defaultName, htmlContent);
     } else {
-      onNotification({ type: 'success', message: '正在启动打印...' });
-      setTimeout(() => window.print(), 500);
+      onNotification({ type: 'success', message: '当前处于网页端，请使用浏览器打印' });
+      window.print();
     }
   };
 
@@ -90,10 +314,6 @@ export default function PreviewPanel({
     setResumeData(snappedData);
     setLayoutAdjustments(snappedLayout);
   };
-
-  const isSpatial = engineType === 'spatial';
-  const a4Width = isSpatial ? '595px' : '794px';
-  const a4MinHeight = isSpatial ? '842px' : '1123px';
 
   return (
     <div className="preview-panel">
@@ -228,7 +448,7 @@ export default function PreviewPanel({
         </div>
       )}
 
-      {/* Render canvas or Mammoth output */}
+      {/* Render canvas or docx-preview output */}
       <div className="a4-container" style={{
         width: a4Width, minHeight: a4MinHeight,
         background: isSpatial ? 'transparent' : '#fff', borderRadius: '4px',
@@ -259,15 +479,15 @@ export default function PreviewPanel({
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280' }}>
                   <Loader size={20} className="animate-spin" />
-                  <span>正在渲染模板预览...</span>
+                  <span>正在渲染高清模板预览...</span>
                 </div>
               </div>
             )}
-            {previewHtml ? (
+            {previewDocxBase64 ? (
               <div
-                className="preview-content"
+                ref={docxContainerRef}
+                className="preview-docx-container"
                 style={{ padding: '0', width: '100%', minHeight: '1123px' }}
-                dangerouslySetInnerHTML={{ __html: previewHtml }}
               />
             ) : (
               <div style={{
@@ -283,6 +503,74 @@ export default function PreviewPanel({
         )}
       </div>
 
+      {/* AI Polish floating popup menu for flow layout templates */}
+      {!isSpatial && polishState && (
+        <div style={{
+          position: 'absolute',
+          left: `${Math.max(10, Math.min(585 - 280, polishState.x - 140))}px`,
+          top: `${Math.max(10, polishState.y)}px`,
+          zIndex: 9999,
+          background: 'rgba(23, 23, 23, 0.95)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: '8px',
+          padding: '6px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(10px)',
+          gap: '8px',
+          animation: 'slideUpShort 0.2s cubic-bezier(0.16,1,0.3,1) forwards'
+        }}>
+          <span style={{ fontSize: '10px', color: '#9ca3af', fontWeight: 600 }}>AI 智能改写:</span>
+          <button
+            onClick={() => handleAIPolish('professional')}
+            disabled={polishing}
+            style={{
+              background: 'none', border: 'none', color: '#60a5fa', fontSize: '10.5px',
+              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: '2px', padding: '3px 6px', borderRadius: '4px'
+            }}
+            className="hover-action-btn"
+          >
+            专业
+          </button>
+          <button
+            onClick={() => handleAIPolish('star')}
+            disabled={polishing}
+            style={{
+              background: 'none', border: 'none', color: '#34d399', fontSize: '10.5px',
+              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: '2px', padding: '3px 6px', borderRadius: '4px'
+            }}
+            className="hover-action-btn"
+          >
+            <Sparkles size={11} className={polishing ? "animate-spin" : ""} /> STAR
+          </button>
+          <button
+            onClick={() => handleAIPolish('shorten')}
+            disabled={polishing}
+            style={{
+              background: 'none', border: 'none', color: '#fbbf24', fontSize: '10.5px',
+              fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center',
+              gap: '2px', padding: '3px 6px', borderRadius: '4px'
+            }}
+            className="hover-action-btn"
+          >
+            精简
+          </button>
+          <div style={{ width: '1px', height: '12px', background: 'rgba(255,255,255,0.15)' }} />
+          <button
+            onClick={() => setPolishState(null)}
+            style={{
+              background: 'none', border: 'none', color: '#9ca3af', fontSize: '10px',
+              cursor: 'pointer', padding: '3px 6px'
+            }}
+          >
+            取消
+          </button>
+        </div>
+      )}
+
       {/* Snapshot Controller Modal Popover */}
       {showSnapshotModal && (
         <SnapshotModal
@@ -296,15 +584,23 @@ export default function PreviewPanel({
       )}
 
       <style>{`
-        .preview-content {
-          font-family: '宋体', 'SimSun', 'Times New Roman', serif;
+        /* docx-preview styling alignments */
+        .preview-docx-container {
+          background: #ffffff;
+          overflow-y: auto;
         }
-        .preview-content table {
-          border-collapse: collapse;
-          width: 100%;
+        .preview-docx-container .docx-wrapper {
+          padding: 0 !important;
+          background: transparent !important;
+          box-shadow: none !important;
         }
-        .preview-content img {
-          max-width: 100%;
+        .preview-docx-container .docx {
+          margin: 0 auto !important;
+          box-shadow: none !important;
+          border: none !important;
+          width: 100% !important;
+          padding: 40px !important;
+          box-sizing: border-box !important;
         }
         .animate-spin {
           animation: spin 1s linear infinite;
@@ -312,6 +608,13 @@ export default function PreviewPanel({
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        @keyframes slideUpShort {
+          from { transform: translateY(4px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+        .hover-action-btn:hover {
+          background: rgba(255,255,255,0.06) !important;
         }
       `}</style>
     </div>
