@@ -207,12 +207,12 @@ def get_all_template_names():
     # From YAML templates dir (these have configs)
     if os.path.isdir(TEMPLATES_DIR):
         for f in os.listdir(TEMPLATES_DIR):
-            if f.endswith('.docx') and '.marked.' not in f:
+            if f.endswith('.docx') and '.marked.' not in f and '.docxtpl.' not in f:
                 names.add(f.replace('.docx', ''))
     # From fallback dir
     if os.path.isdir(FALLBACK_TEMPLATES_DIR):
         for f in os.listdir(FALLBACK_TEMPLATES_DIR):
-            if f.endswith('.docx') and '.marked.' not in f:
+            if f.endswith('.docx') and '.marked.' not in f and '.docxtpl.' not in f:
                 names.add(f.replace('.docx', ''))
     return sorted(names)
 

@@ -803,6 +803,16 @@ def has_jinja2_tags(template_path: str) -> bool:
         return False
 
 
+def has_textboxes(template_path: str) -> bool:
+    """Check if template contains absolute positioning textboxes."""
+    try:
+        with zipfile.ZipFile(template_path, 'r') as z:
+            doc_xml = z.read('word/document.xml').decode('utf-8')
+        return 'w:txbxContent' in doc_xml
+    except Exception:
+        return False
+
+
 def fill(template_path: str, config: dict, data: dict, output_path: str) -> bool:
     engine = TemplateEngine(template_path, config)
     return engine.fill(data, output_path)
@@ -815,14 +825,15 @@ def fill_with_config_path(template_path: str, config_path: str, data: dict, outp
 
 
 def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool:
-    """Fill a template using docxtpl/YAML config with v2 fallback.
+    """Fill a template using docxtpl/YAML config/spatial with v2 fallback.
 
     Priority:
-    1. Template has .marked.docx version → use docxtpl
+    1. Template has .docxtpl.docx version → use docxtpl
     2. Template contains Jinja2 tags → use docxtpl
     3. Template has .yaml → use template_engine (YAML config)
-    4. Template engine fails AND yaml has fallback: true → use v2
-    5. Template has no .yaml → use v2 directly
+    4. Template has no .yaml but has textboxes → use spatial_engine (Level 2.5)
+    5. Template engine fails AND yaml has fallback: true → use v2
+    6. Template has no .yaml and no textboxes → use v2 directly
     """
     import os
 
@@ -833,8 +844,12 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
     if os.path.exists(docxtpl_path) and has_jinja2_tags(docxtpl_path):
         return fill_with_docxtpl(docxtpl_path, data, output_path)
 
-    config_path = template_path.replace('.docx', '.yaml')
+    # Level 1.5: Template contains Jinja2 tags directly
+    if has_jinja2_tags(template_path):
+        return fill_with_docxtpl(template_path, data, output_path)
 
+    # Level 2: YAML config
+    config_path = template_path.replace('.docx', '.yaml')
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -851,7 +866,18 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
         except Exception as e:
             print(f"{os.path.basename(template_path)}:engine:ERROR_{e}", file=sys.stderr)
 
-    # v2 fallback
+    # Level 2.5: Spatial Engine (No YAML but has absolute layout textboxes)
+    if has_textboxes(template_path):
+        try:
+            from spatial_engine import fill_spatial
+            result = fill_spatial(template_path, data, output_path)
+            if result:
+                print(f"{os.path.basename(template_path)}:spatial:OK", file=sys.stderr)
+                return True
+        except Exception as e:
+            print(f"{os.path.basename(template_path)}:spatial:ERROR_{e}", file=sys.stderr)
+
+    # Level 3: v2 fallback
     from docx_filler_v2 import fill_template as v2_fill
     try:
         v2_fill(template_path, data, output_path)

@@ -292,6 +292,30 @@ class TestTemplateEngine(unittest.TestCase):
         self.assertTrue(os.path.exists(out))
         os.unlink(out)
 
+    def test_spatial_fill(self):
+        """Test Level 2.5 spatial engine fallback (when no YAML configuration is present)."""
+        import shutil
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Copy minimalist template to temp directory with a new name, so no YAML file exists near it
+            src_template = os.path.join(FALLBACK_TEMPLATES_DIR, '简约单页01.docx')
+            test_template = os.path.join(temp_dir, 'no_yaml_template.docx')
+            shutil.copy2(src_template, test_template)
+            
+            out_docx = os.path.join(temp_dir, 'output.docx')
+            
+            # Fill using fallback router
+            result = fill_with_fallback(test_template, TEST_DATA, out_docx)
+            self.assertTrue(result)
+            
+            # Verify data exists in filled template
+            texts = get_docx_texts(out_docx)
+            self.assertTrue(any('周煜峰' in t for t in texts))
+            self.assertTrue(any('15212171672' in t for t in texts))
+            self.assertTrue(any('复旦大学' in t for t in texts))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 if __name__ == '__main__':
     unittest.main()
