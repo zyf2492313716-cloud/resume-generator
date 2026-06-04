@@ -17,7 +17,27 @@ export default function App() {
   const [notification, setNotification] = useState(null);
   const [showApiConfig, setShowApiConfig] = useState(false);
   const [templateEngineType, setTemplateEngineType] = useState('yaml');
+  const [isDesensitized, setIsDesensitized] = useState(false);
   const previewTimerRef = React.useRef(null);
+
+  // Deep clone and obfuscate personal data fields for desensitized outputs
+  const getDesensitizedData = (data) => {
+    const copy = JSON.parse(JSON.stringify(data));
+    if (copy.basicInfo) {
+      const rawName = copy.basicInfo.name || '';
+      copy.basicInfo.name = rawName.length > 1 ? `${rawName[0]}${'*'.repeat(rawName.length - 1)}` : '求职者';
+      if (copy.basicInfo.phone) {
+        copy.basicInfo.phone = copy.basicInfo.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2');
+      }
+      if (copy.basicInfo.email) {
+        copy.basicInfo.email = copy.basicInfo.email.replace(/(.{2}).*(@.*)/, '$1***$2');
+      }
+      if (copy.basicInfo.wechat) {
+        copy.basicInfo.wechat = '***';
+      }
+    }
+    return copy;
+  };
 
   const loadTemplates = useCallback(() => {
     if (window.electronAPI) {
@@ -57,7 +77,8 @@ export default function App() {
     }
     previewTimerRef.current = setTimeout(() => {
       setPreviewLoading(true);
-      const dataForIpc = JSON.parse(JSON.stringify(resumeData));
+      const rawData = JSON.parse(JSON.stringify(resumeData));
+      const dataForIpc = isDesensitized ? getDesensitizedData(rawData) : rawData;
       window.electronAPI.renderPreview(selectedTemplate.name, dataForIpc)
         .then(result => {
           if (result.success) {
@@ -77,7 +98,7 @@ export default function App() {
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
-  }, [resumeData, selectedTemplate, templateEngineType]);
+  }, [resumeData, selectedTemplate, templateEngineType, isDesensitized]);
 
   const showNotification = useCallback(({ type, message }) => {
     setNotification({ type, message });
@@ -122,6 +143,8 @@ export default function App() {
         resumeData={resumeData}
         setResumeData={setResumeData}
         engineType={templateEngineType}
+        isDesensitized={isDesensitized}
+        setIsDesensitized={setIsDesensitized}
       />
 
       <TemplatePanel

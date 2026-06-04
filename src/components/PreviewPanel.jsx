@@ -10,13 +10,14 @@ export default function PreviewPanel({
   selectedTemplate,
   resumeData,
   setResumeData,
-  engineType
+  engineType,
+  isDesensitized,
+  setIsDesensitized
 }) {
   const [canvasScale, setCanvasScale] = useState(0.7);
   const [layoutAdjustments, setLayoutAdjustments] = useState({});
 
   // Advanced Layout Control States
-  const [isDesensitized, setIsDesensitized] = useState(false);
   const [themeColor, setThemeColor] = useState('');
   const [fontSizeOffset, setFontSizeOffset] = useState(0);
   const [spacingOffset, setSpacingOffset] = useState(0);
@@ -122,7 +123,35 @@ export default function PreviewPanel({
           }}>
             <Printer size={14} /> 导出 PDF
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '10px' }}>
+
+          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+
+          {/* Privacy Desensitization Toggle */}
+          <button onClick={() => setIsDesensitized(!isDesensitized)} style={{
+            padding: '7px 12px', background: isDesensitized ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${isDesensitized ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'}`,
+            color: isDesensitized ? '#34d399' : '#d1d5db', borderRadius: '6px', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px',
+            transition: 'all 0.2s'
+          }}>
+            {isDesensitized ? <EyeOff size={13} /> : <Eye size={13} />}
+            隐私打码 {isDesensitized ? '已开' : '已关'}
+          </button>
+
+          {/* Snapshots Button */}
+          <button onClick={() => setShowSnapshotModal(true)} style={{
+            padding: '7px 12px', background: 'rgba(59,130,246,0.15)',
+            border: '1px solid rgba(59,130,246,0.3)',
+            color: '#60a5fa', borderRadius: '6px', cursor: 'pointer',
+            fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '5px',
+            transition: 'all 0.2s'
+          }}>
+            <Camera size={13} /> 历史快照
+          </button>
+
+          <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>缩放:</span>
             <input type="range" min="0.4" max="1.2" step="0.05" value={canvasScale}
               onChange={(e) => setCanvasScale(parseFloat(e.target.value))}
@@ -196,27 +225,6 @@ export default function PreviewPanel({
               </button>
             )}
           </div>
-
-          {/* Privacy Desensitization Toggle */}
-          <button onClick={() => setIsDesensitized(!isDesensitized)} style={{
-            padding: '5px 10px', background: isDesensitized ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
-            border: `1px solid ${isDesensitized ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.1)'}`,
-            color: isDesensitized ? '#34d399' : '#d1d5db', borderRadius: '4px', cursor: 'pointer',
-            fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'
-          }}>
-            {isDesensitized ? <EyeOff size={12} /> : <Eye size={12} />}
-            隐私打码 {isDesensitized ? '已开启' : '已关闭'}
-          </button>
-
-          {/* Snapshots Button */}
-          <button onClick={() => setShowSnapshotModal(true)} style={{
-            padding: '5px 10px', background: 'rgba(59,130,246,0.15)',
-            border: '1px solid rgba(59,130,246,0.3)',
-            color: '#60a5fa', borderRadius: '4px', cursor: 'pointer',
-            fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px'
-          }}>
-            <Camera size={12} /> 历史快照
-          </button>
         </div>
       )}
 

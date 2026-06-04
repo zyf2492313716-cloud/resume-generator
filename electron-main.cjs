@@ -205,6 +205,13 @@ ipcMain.handle('parse-template-layout', async (event, { templatePath }) => {
   }
 });
 
+const SPATIAL_WHITELIST = new Set([
+  "文艺单页04", "文艺单页07", "文艺单页09", "文艺单页16",
+  "活泼单页12", "知页简历02", "知页简历03", "稳重单页01", "稳重单页21",
+  "简约单页18", "简约单页19", "简约单页30",
+  "文艺单页10", "文艺单页12", "稳重单页06", "稳重单页12", "稳重单页20", "简约单页25"
+]);
+
 ipcMain.handle('check-template-config', async (event, { templatePath }) => {
   let docxtplPath = templatePath.replace('.docx', '.docxtpl.docx');
   let hasDocxtpl = fs.existsSync(docxtplPath);
@@ -231,11 +238,14 @@ ipcMain.handle('check-template-config', async (event, { templatePath }) => {
     }
   }
   
+  const baseName = path.basename(templatePath, '.docx');
   let engineType = 'spatial';
   let fallback = false;
   
   if (hasDocxtpl) {
     engineType = 'docxtpl';
+  } else if (SPATIAL_WHITELIST.has(baseName)) {
+    engineType = 'spatial';
   } else if (hasYaml) {
     engineType = 'yaml';
     try {

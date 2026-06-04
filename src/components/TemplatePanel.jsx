@@ -38,10 +38,29 @@ export default function TemplatePanel({
   const getStatusIcon = (name) => {
     const s = configStatus[name];
     if (!s) return null;
+    if (s.engineType === 'spatial') {
+      return (
+        <span 
+          title="🎨 自由精雕模板：支持可视化画布拖拽、AI改写、全局字号颜色间距微调" 
+          style={{ 
+            color: '#3b82f6', 
+            background: 'rgba(59,130,246,0.12)',
+            border: '1px solid rgba(59,130,246,0.3)',
+            borderRadius: '3px',
+            padding: '1px 4px',
+            fontSize: '9px',
+            fontWeight: 700,
+            marginLeft: 'auto'
+          }}
+        >
+          🎨 自由精雕
+        </span>
+      );
+    }
     if (s.engineType === 'docxtpl') {
       return (
         <span 
-          title="✨ 精雕排版模版：支持多经历自动分页，无条目限制" 
+          title="📄 智能分页模板：支持多页自动延展，适合内容丰富的简历" 
           style={{ 
             color: '#10b981', 
             background: 'rgba(16,185,129,0.12)',
@@ -53,7 +72,7 @@ export default function TemplatePanel({
             marginLeft: 'auto'
           }}
         >
-          ✨ 精雕
+          📄 智能分页
         </span>
       );
     }
