@@ -33,6 +33,7 @@ __pycache__/
 venv/
 ENV/
 env/
+src/utils/libs/
 
 build/
 dist/

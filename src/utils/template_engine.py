@@ -14,6 +14,13 @@ Built-in capabilities:
 - 3-layer error handling (section skip → field skip → always produce docx)
 """
 
+# Embedded dependencies (vendored at build time)
+import os as _os
+_libs_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'libs')
+if _os.path.exists(_libs_path):
+    import sys as _sys
+    _sys.path.insert(0, _libs_path)
+
 import zipfile
 from lxml import etree as ET
 import yaml
