@@ -67,11 +67,6 @@ export default function App() {
       setPreviewLoading(false);
       return;
     }
-    if (templateEngineType === 'spatial') {
-      // 绝对定位精雕预览由前端 InteractiveCanvas 像素级呈现，无需 Mammoth 转换预览
-      setPreviewLoading(false);
-      return;
-    }
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current);
     }

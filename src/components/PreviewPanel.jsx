@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Printer, FileText, Loader, Eye, EyeOff, Palette, Type, Space, Camera, Sparkles } from 'lucide-react';
 import { renderAsync } from 'docx-preview';
 import { polishText } from '../utils/aiParser';
-import InteractiveCanvas from './InteractiveCanvas';
 import SnapshotModal from './SnapshotModal';
 
 export default function PreviewPanel({
@@ -19,7 +18,7 @@ export default function PreviewPanel({
   const [canvasScale, setCanvasScale] = useState(0.7);
   const [layoutAdjustments, setLayoutAdjustments] = useState({});
 
-  // Advanced Layout Control States
+  // Advanced Layout Control States (Used for spatial templates coordinate rewrites on the backend)
   const [themeColor, setThemeColor] = useState('');
   const [fontSizeOffset, setFontSizeOffset] = useState(0);
   const [spacingOffset, setSpacingOffset] = useState(0);
@@ -30,6 +29,18 @@ export default function PreviewPanel({
   const [polishing, setPolishing] = useState(false);
 
   const docxContainerRef = React.useRef(null);
+
+  // Automatically trigger backend re-rendering when adjustments change in spatial mode
+  useEffect(() => {
+    if (engineType === 'spatial' && selectedTemplate) {
+      // Pack global adjustments into layoutAdjustments state map
+      setLayoutAdjustments({
+        __global_color__: themeColor || null,
+        __global_font_size__: fontSizeOffset || 0,
+        __global_spacing__: spacingOffset || 0
+      });
+    }
+  }, [themeColor, fontSizeOffset, spacingOffset, selectedTemplate?.name, engineType]);
 
   useEffect(() => {
     // Reset layout adjustments when the template changes
@@ -54,14 +65,12 @@ export default function PreviewPanel({
   }, [onNotification]);
 
   const isSpatial = engineType === 'spatial';
-  const a4Width = isSpatial ? '595px' : '794px';
-  const a4MinHeight = isSpatial ? '842px' : '1123px';
 
   // 1:1 High fidelity render of docx in preview container via docx-preview
   useEffect(() => {
-    if (isSpatial || !previewDocxBase64 || !docxContainerRef.current) return;
+    if (!previewDocxBase64 || !docxContainerRef.current) return;
     
-    // CRITICAL: Clear container HTML to prevent appending duplicate renders and breaking editor focus
+    // Clear container HTML to prevent duplicate overlay appends
     docxContainerRef.current.innerHTML = "";
     
     // Base64 to ArrayBuffer conversion
@@ -76,7 +85,7 @@ export default function PreviewPanel({
     renderAsync(arrayBuffer, docxContainerRef.current, null, {
       className: "docx",
       inWrapper: false,
-      ignoreWidth: false, // Keep original Word physical margins and dimensions
+      ignoreWidth: true, // Let the layout fill parent container to prevent horizontal clipping
       ignoreHeight: false
     }).then(() => {
       const container = docxContainerRef.current;
@@ -93,7 +102,7 @@ export default function PreviewPanel({
         docxContainerRef.current.removeEventListener('dblclick', handleDocxDblClick);
       }
     };
-  }, [previewDocxBase64, isSpatial]);
+  }, [previewDocxBase64]);
 
   // Deep clone and obfuscate personal data fields for desensitized outputs
   const getDesensitizedData = (data) => {
@@ -178,7 +187,7 @@ export default function PreviewPanel({
     const target = e.target;
     if (!target) return;
 
-    // Filter out table layout containers to allow click target accuracy
+    // Filter out structural nodes to prevent overall paragraph edit blocks
     const structuralContainers = new Set(['TABLE', 'TBODY', 'TR', 'THEAD', 'SECTION', 'ARTICLE']);
     if (structuralContainers.has(target.tagName)) return;
 
@@ -211,7 +220,6 @@ export default function PreviewPanel({
     }
 
     const handleBlur = () => {
-      // Small timeout to allow AI floating menu click events to process first
       setTimeout(() => {
         target.contentEditable = false;
         target.style.outline = 'none';
@@ -268,24 +276,10 @@ export default function PreviewPanel({
   // 100% "What You See Is What You Get" high-fidelity PDF printing
   const handlePrint = () => {
     let htmlContent = '';
-    
-    if (isSpatial) {
-      // Spatial mode: capture A4 sheet container
-      const sheetDom = document.querySelector('.a4-sheet');
-      if (sheetDom) {
-        const clone = sheetDom.cloneNode(true);
-        // Remove contentEditable & handles for clean output
-        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-        clone.querySelectorAll('.resize-handle').forEach(el => el.remove());
-        htmlContent = clone.outerHTML;
-      }
-    } else {
-      // Flow layout template: capture docx-preview output
-      if (docxContainerRef.current) {
-        const clone = docxContainerRef.current.cloneNode(true);
-        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
-        htmlContent = clone.outerHTML;
-      }
+    if (docxContainerRef.current) {
+      const clone = docxContainerRef.current.cloneNode(true);
+      clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+      htmlContent = clone.outerHTML;
     }
     
     if (!htmlContent) {
@@ -453,63 +447,45 @@ export default function PreviewPanel({
         </div>
       )}
 
-      {/* Render canvas or docx-preview output */}
+      {/* Render docx-preview output */}
       <div className="a4-container" style={{
-        width: a4Width, minHeight: a4MinHeight,
-        background: isSpatial ? 'transparent' : '#fff', borderRadius: '4px',
-        overflow: isSpatial ? 'visible' : 'hidden', position: 'relative',
+        width: '794px', minHeight: '1123px',
+        background: '#fff', borderRadius: '4px',
+        overflow: 'hidden', position: 'relative',
         transform: `scale(${canvasScale})`, transformOrigin: 'top center',
-        boxShadow: isSpatial ? 'none' : '0 8px 40px rgba(0,0,0,0.3)'
+        boxShadow: '0 8px 40px rgba(0,0,0,0.3)'
       }}>
-        {isSpatial ? (
-          <InteractiveCanvas
-            templatePath={selectedTemplate?.path}
-            resumeData={resumeData}
-            setResumeData={setResumeData}
-            onNotification={onNotification}
-            canvasScale={canvasScale}
-            layoutAdjustments={layoutAdjustments}
-            setLayoutAdjustments={setLayoutAdjustments}
-            isDesensitized={isDesensitized}
-            themeColor={themeColor}
-            fontSizeOffset={fontSizeOffset}
-            spacingOffset={spacingOffset}
+        {previewLoading && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: 'rgba(255,255,255,0.85)', zIndex: 10
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280' }}>
+              <Loader size={20} className="animate-spin" />
+              <span>正在渲染高清模板预览...</span>
+            </div>
+          </div>
+        )}
+        {previewDocxBase64 ? (
+          <div
+            ref={docxContainerRef}
+            className="preview-docx-container"
+            style={{ padding: '0', width: '100%', minHeight: '1123px' }}
           />
         ) : (
-          <>
-            {previewLoading && (
-              <div style={{
-                position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-                justifyContent: 'center', background: 'rgba(255,255,255,0.85)', zIndex: 10
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b7280' }}>
-                  <Loader size={20} className="animate-spin" />
-                  <span>正在渲染高清模板预览...</span>
-                </div>
-              </div>
-            )}
-            {previewDocxBase64 ? (
-              <div
-                ref={docxContainerRef}
-                className="preview-docx-container"
-                style={{ padding: '0', width: '100%', minHeight: '1123px' }}
-              />
-            ) : (
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                justifyContent: 'center', height: '1123px', color: '#9ca3af', gap: '10px'
-              }}>
-                <FileText size={32} />
-                <div style={{ fontSize: '14px' }}>请先在左侧编辑简历数据，右侧选择模板</div>
-                <div style={{ fontSize: '12px' }}>选中模板后将自动生成预览</div>
-              </div>
-            )}
-          </>
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', height: '1123px', color: '#9ca3af', gap: '10px'
+          }}>
+            <FileText size={32} />
+            <div style={{ fontSize: '14px' }}>请先在左侧编辑简历数据，右侧选择模板</div>
+            <div style={{ fontSize: '12px' }}>选中模板后将自动生成预览</div>
+          </div>
         )}
       </div>
 
       {/* AI Polish floating popup menu for flow layout templates */}
-      {!isSpatial && polishState && (
+      {polishState && (
         <div style={{
           position: 'absolute',
           left: `${Math.max(10, Math.min(585 - 280, polishState.x - 140))}px`,
@@ -603,6 +579,9 @@ export default function PreviewPanel({
           margin: 0 auto !important;
           box-shadow: none !important;
           border: none !important;
+          width: 100% !important;
+          padding: 40px !important;
+          box-sizing: border-box !important;
         }
         .animate-spin {
           animation: spin 1s linear infinite;
