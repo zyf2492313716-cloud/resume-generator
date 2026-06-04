@@ -49,7 +49,7 @@ function scanTemplates() {
     const dir = getTemplatesDir();
     if (!dir || !fs.existsSync(dir)) return [];
     const files = fs.readdirSync(dir)
-      .filter(f => f.endsWith('.docx') && !f.startsWith('.'))
+      .filter(f => f.endsWith('.docx') && !f.startsWith('.') && !f.includes('.docxtpl.') && !f.includes('.marked.'))
       .sort();
     return files.map(name => ({
       name,
