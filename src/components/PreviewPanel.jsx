@@ -61,6 +61,9 @@ export default function PreviewPanel({
   useEffect(() => {
     if (isSpatial || !previewDocxBase64 || !docxContainerRef.current) return;
     
+    // CRITICAL: Clear container HTML to prevent appending duplicate renders and breaking editor focus
+    docxContainerRef.current.innerHTML = "";
+    
     // Base64 to ArrayBuffer conversion
     const binaryString = atob(previewDocxBase64);
     const len = binaryString.length;
@@ -73,7 +76,7 @@ export default function PreviewPanel({
     renderAsync(arrayBuffer, docxContainerRef.current, null, {
       className: "docx",
       inWrapper: false,
-      ignoreWidth: true,
+      ignoreWidth: false, // Keep original Word physical margins and dimensions
       ignoreHeight: false
     }).then(() => {
       const container = docxContainerRef.current;
@@ -173,12 +176,14 @@ export default function PreviewPanel({
   // Handle Double Click to edit non-spatial template text node on screen
   const handleDocxDblClick = (e) => {
     const target = e.target;
-    // Check if target is a leaf node containing clean text (no child elements)
-    if (!target || target.children.length > 0) return;
-    const text = target.innerText.trim();
-    if (!text) return;
+    if (!target) return;
 
-    const oldText = target.innerText;
+    // Filter out table layout containers to allow click target accuracy
+    const structuralContainers = new Set(['TABLE', 'TBODY', 'TR', 'THEAD', 'SECTION', 'ARTICLE']);
+    if (structuralContainers.has(target.tagName)) return;
+
+    const oldText = target.innerText.trim();
+    if (!oldText) return;
 
     target.setAttribute('data-editing', 'true');
     target.id = 'temp_editing_node';
@@ -598,9 +603,6 @@ export default function PreviewPanel({
           margin: 0 auto !important;
           box-shadow: none !important;
           border: none !important;
-          width: 100% !important;
-          padding: 40px !important;
-          box-sizing: border-box !important;
         }
         .animate-spin {
           animation: spin 1s linear infinite;
