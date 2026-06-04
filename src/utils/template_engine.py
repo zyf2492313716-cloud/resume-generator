@@ -744,6 +744,65 @@ class TemplateEngine:
                         zout.writestr(item, zin.read(item.filename))
 
 
+def fill_with_docxtpl(template_path: str, data: dict, output_path: str) -> bool:
+    """Fill a template using docxtpl (Level 1 in progressive fallback)."""
+    try:
+        from docxtpl import DocxTemplate
+        doc = DocxTemplate(template_path)
+        
+        # Build context
+        context = {}
+        basic = data.get('basicInfo', {})
+        for k, v in basic.items():
+            context[k] = v
+            
+        # Map list section data to flat keys used by mark_template_docxtpl.py
+        edus = data.get('education', [])
+        if edus:
+            context['edu_school'] = edus[0].get('school', '')
+            context['edu_major'] = edus[0].get('major', '')
+            context['edu_degree'] = edus[0].get('degree', '')
+            context['edu_date'] = edus[0].get('date', '')
+            
+        exps = data.get('experience', [])
+        if exps:
+            context['exp_company'] = exps[0].get('company', '')
+            context['exp_role'] = exps[0].get('role', '')
+            context['exp_date'] = exps[0].get('date', '')
+            context['exp_desc'] = exps[0].get('description', '')
+            
+        if 'address' in basic:
+            context['address'] = basic['address']
+        if 'wechat' in basic:
+            context['wechat'] = basic['wechat']
+            
+        honors = data.get('honors', [])
+        if honors:
+            context['honors'] = '\n'.join('• ' + h if not h.startswith('•') and not h.startswith('-') else h for h in honors)
+            
+        skills = data.get('skills', [])
+        if skills:
+            context['skills'] = '；'.join(skills)
+            
+        doc.render(context)
+        doc.save(output_path)
+        print(f"{_os.path.basename(template_path)}:docxtpl:OK", file=_sys.stderr)
+        return True
+    except Exception as e:
+        print(f"docxtpl error: {e}", file=_sys.stderr)
+        return False
+
+
+def has_jinja2_tags(template_path: str) -> bool:
+    """Check if template contains Jinja2 placeholders."""
+    try:
+        with zipfile.ZipFile(template_path, 'r') as z:
+            doc_xml = z.read('word/document.xml').decode('utf-8')
+        return '{{' in doc_xml or '{%' in doc_xml
+    except Exception:
+        return False
+
+
 def fill(template_path: str, config: dict, data: dict, output_path: str) -> bool:
     engine = TemplateEngine(template_path, config)
     return engine.fill(data, output_path)
@@ -756,14 +815,24 @@ def fill_with_config_path(template_path: str, config_path: str, data: dict, outp
 
 
 def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool:
-    """Fill a template using YAML config with v2 fallback.
+    """Fill a template using docxtpl/YAML config with v2 fallback.
 
     Priority:
-    1. Template has .yaml → use template_engine
-    2. Template engine fails AND yaml has fallback: true → use v2
-    3. Template has no .yaml → use v2 directly
+    1. Template has .marked.docx version → use docxtpl
+    2. Template contains Jinja2 tags → use docxtpl
+    3. Template has .yaml → use template_engine (YAML config)
+    4. Template engine fails AND yaml has fallback: true → use v2
+    5. Template has no .yaml → use v2 directly
     """
     import os
+
+    # Level 1: Check for manually marked template (.docxtpl.docx)
+    # Only use docxtpl for templates that have been comprehensively marked
+    # with Jinja2 tags covering all sections (not auto-marked .marked.docx)
+    docxtpl_path = template_path.replace('.docx', '.docxtpl.docx')
+    if os.path.exists(docxtpl_path) and has_jinja2_tags(docxtpl_path):
+        return fill_with_docxtpl(docxtpl_path, data, output_path)
+
     config_path = template_path.replace('.docx', '.yaml')
 
     if os.path.exists(config_path):

@@ -42,3 +42,4 @@ dist-desktop/
 temp_resume_data.json
 /tmp/temp_resume_data.json
 .DS_Store
+*.marked.docx
