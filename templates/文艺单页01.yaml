@@ -37,15 +37,15 @@ sections:
     item_separator: "paragraph"
 
   experience:
-    header: "工作经历"
+    header: "实践经验"
     entry_schema:
       company:
         type: "keyword_scan"
-        keywords: ["出版社", "公司", "画院"]
+        keywords: ["出版社", "公司", "画院", "医院", "中心", "大学"]
         value_scope: "keyword_substring"
       role:
         type: "keyword_scan"
-        keywords: ["插画师", "设计师", "编辑", "主编"]
+        keywords: ["插画师", "设计师", "编辑", "主编", "实习生", "实习", "负责人"]
         value_scope: "keyword_substring"
     item_separator: "paragraph"
 

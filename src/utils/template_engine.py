@@ -75,6 +75,7 @@ class TemplateEngine:
         self.template_path = template_path
         self.config = config
         self.warnings = []
+        self._modified_nodes = set()  # Track which text nodes were modified
 
         with zipfile.ZipFile(template_path, 'r') as z:
             self.doc_xml = z.read('word/document.xml').decode('utf-8')
@@ -128,9 +129,11 @@ class TemplateEngine:
 
     def _set_node_text(self, t_node, value):
         t_node.text = value
+        self._modified_nodes.add(t_node)
 
     def _clear_node_text(self, t_node):
         t_node.text = ''
+        self._modified_nodes.add(t_node)
 
     # ── Section boundary detection ─────────────────────────────────────
     def _find_section_paras(self, header_text):
@@ -209,6 +212,10 @@ class TemplateEngine:
                 if sep_idx >= 0 and sep_idx >= len(pattern) - 1:
                     before = txt[:sep_idx + 1]
                     self._set_node_text(t, before + value)
+                    # Clear other text nodes in same paragraph (template remnants)
+                    for other_t, _ in self._get_para_texts(para):
+                        if other_t is not t:
+                            self._clear_node_text(other_t)
                     return True
         return False
 
@@ -293,18 +300,27 @@ class TemplateEngine:
         idx = txt.find(keyword)
         if idx < 0:
             return txt
+        MAX_EXPAND = 5  # Maximum characters to expand in each direction
+        MAX_RESULT = 10  # Maximum length of expanded region
         start = idx
-        while start > 0:
+        expanded_back = 0
+        while start > 0 and expanded_back < MAX_EXPAND:
             ch = txt[start - 1]
             if ch in ' \t，。、；：|/！？（）()[]【】{}':
                 break
             start -= 1
+            expanded_back += 1
         end = idx + len(keyword)
-        while end < len(txt):
+        expanded_fwd = 0
+        while end < len(txt) and expanded_fwd < MAX_EXPAND:
             ch = txt[end]
             if ch in ' \t，。、；：|/！？（）()[]【】{}':
                 break
             end += 1
+            expanded_fwd += 1
+        # If expanded region is too long, just replace the keyword itself
+        if (end - start) > MAX_RESULT:
+            return txt[:idx] + value + txt[idx + len(keyword):]
         return txt[:start] + value + txt[end:]
 
     def _fill_keyword_global(self, keywords, value, value_scope='keyword_substring', replace_all=False):
@@ -390,6 +406,9 @@ class TemplateEngine:
                             self._clear_node_text(t)
                         filled = True
                         break
+
+            if filled:
+                break  # Only fill the FIRST occurrence of a section
 
         return filled
 
@@ -507,35 +526,6 @@ class TemplateEngine:
             if filled > 0:
                 return True
 
-        # Global fallback: scan ALL paragraphs for keywords
-        schema_keys = list(entry_schema.keys())
-        primary_field = schema_keys[0] if schema_keys else None
-        primary_cfg = entry_schema.get(primary_field, {})
-        primary_keywords = primary_cfg.get('keywords', [])
-
-        if primary_keywords and entries:
-            # Collect all section header texts to skip
-            all_header_texts = set()
-            for sec in self.config.get('sections', {}).values():
-                h = sec.get('header', '')
-                if h:
-                    all_header_texts.add(h)
-
-            global_paras = []
-            for pi, p in enumerate(self.paragraphs):
-                if pi in self.giant_para_indices:
-                    continue
-                txt = self._get_para_full_text(p)
-                if not txt:
-                    continue
-                if txt in all_header_texts:
-                    continue
-                global_paras.append((pi, p))
-
-            filled = self._try_fill_entries(global_paras, entry_schema, entries)
-            if filled > 0:
-                return True
-
         return False
 
     # ── Main fill method ───────────────────────────────────────────────
@@ -593,7 +583,7 @@ class TemplateEngine:
                         continue
                     if self._match_label_adjacent(p, pattern, value):
                         filled = True
-                        # Don't break - replace all matching paragraphs
+                        break
                 # Fallback: try giant paragraphs too
                 if not filled:
                     for pi in self.giant_para_indices:
@@ -666,6 +656,9 @@ class TemplateEngine:
                 else:
                     self._warn(f"Section '{sec_name}' entries not filled")
 
+        # Snapshot modified nodes BEFORE post-processing cleanup
+        self._fill_modified = set(self._modified_nodes)
+
         # Post-processing: replace ALL remaining placeholder names globally
         name = basic.get('name', '')
         if name:
@@ -694,6 +687,40 @@ class TemplateEngine:
                             for t, _ in texts[1:]:
                                 self._clear_node_text(t)
                             break
+
+        # Post-processing: clear paragraphs that were NOT modified by the fill.
+        # For templates with duplicated content (two text box areas),
+        # the engine fills one copy but leaves the other untouched.
+        # Blank all untouched, non-header, non-giant paragraphs with significant text.
+        all_headers = set(ALL_SECTION_HEADERS)
+        for sec_cfg in self.config.get('sections', {}).values():
+            h = sec_cfg.get('header', '')
+            if h:
+                all_headers.add(h)
+        # Also add basic_info labels to the safe list
+        for fcfg in bi_cfg.values():
+            p = fcfg.get('pattern', '')
+            if p:
+                all_headers.add(p)
+
+        for pi, p in enumerate(self.paragraphs):
+            if pi in self.giant_para_indices:
+                continue
+            own = self._get_own_text_nodes(p)
+            if not own:
+                continue
+            # Check if ANY text node in this paragraph was modified during fill (not post-processing)
+            if any(t in self._fill_modified for t in own):
+                continue
+            full_text = self._get_para_full_text(p)
+            if not full_text or len(full_text) < 1:
+                continue
+            if full_text.strip() in all_headers:
+                continue
+            # This paragraph was untouched - blank it
+            self._clear_node_text(own[0])
+            for t in own[1:]:
+                self._clear_node_text(t)
 
         self._save(output_path)
         return any_filled

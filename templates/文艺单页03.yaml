@@ -36,6 +36,8 @@ sections:
         - 研究院
         - 医院
         - 银行
+        - 培训
+        - 机构
         value_scope: keyword_substring
       role:
         type: keyword_scan
@@ -77,5 +79,5 @@ sections:
         value_scope: keyword_substring
     item_separator: paragraph
   honors:
-    header: 本科期间获校级三好学生、国家奖学金
+    header: 获奖证书
     type: section_replace

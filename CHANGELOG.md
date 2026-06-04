@@ -1,5 +1,32 @@
 # 更新日志
 
+## v2.2.0 - 引擎修复与填充质量提升 (2026-06-04)
+
+### Bug 修复
+
+**template_engine.py**
+- 修复 label_adjacent 替换所有匹配段落的 bug（改回 break，只替换第一个匹配）
+- 修复 section_replace 循环处理所有 header_paras 的 bug（加 break，只填充第一个出现位置）
+- 修复 label_inline 替换后未清空同段落其他文本节点的问题
+- 修复 post-processing 误标记已修改段落的问题（使用 _fill_modified 快照）
+- 移除全局 keyword fallback（扫描所有段落导致误匹配，如"服从学校和部门的工作安排"被替换）
+- keyword_substring 扩展增加最大长度限制（MAX_EXPAND=5, MAX_RESULT=10），避免吞掉整句
+
+**YAML 配置修复**
+- 文艺单页01: experience header "工作经历" → "实践经验"，扩展 company/role 关键词
+- 文艺单页03: honors header "本科期间获校级三好学生..." → "获奖证书"（修正为实际标题）
+- 稳重单页16: 完全重写（修正 name/phone/honors/skills 配置）
+- 稳重单页17: 完全重写（修正 name/phone/education/skills 配置）
+
+### 验证结果
+
+- 填充率：96/103 → 98/103 (95%) 达 4/5+
+- 平均分：4.5/5 → 4.6/5
+- 5/5: 64 → 65 模板
+- 零回归：修复前后其他模板无影响
+
+---
+
 ## v2.1.0 - 配置驱动模板填充引擎 (2026-06-04)
 
 ### 新增功能

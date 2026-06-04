@@ -1,7 +1,7 @@
 {
   "name": "resume-generator",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.2.0",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron": "electron .",
-    "dist": "vite build && electron-builder --mac --publish=never"
+    "dist": "vite build && PATH=\"scripts/py-wrapper:/opt/homebrew/bin:/usr/bin:/bin\" electron-builder --mac --publish=never"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -32,8 +32,8 @@
     "directories": {
       "output": "dist-desktop"
     },
-    "afterSign": "scripts/afterSign.cjs",
     "mac": {
+      "identity": null,
       "target": [
         "dmg"
       ],
