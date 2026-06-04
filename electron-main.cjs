@@ -178,16 +178,26 @@ ipcMain.handle('get-template-list', async () => {
 });
 
 ipcMain.handle('check-template-config', async (event, { templatePath }) => {
+  const docxtplPath = templatePath.replace('.docx', '.docxtpl.docx');
+  const hasDocxtpl = fs.existsSync(docxtplPath);
+  
   const configPath = templatePath.replace('.docx', '.yaml');
-  const exists = fs.existsSync(configPath);
+  const hasYaml = fs.existsSync(configPath);
+  
+  let engineType = 'spatial';
   let fallback = false;
-  if (exists) {
+  
+  if (hasDocxtpl) {
+    engineType = 'docxtpl';
+  } else if (hasYaml) {
+    engineType = 'yaml';
     try {
       const content = fs.readFileSync(configPath, 'utf-8');
       fallback = content.includes('fallback: true');
     } catch (e) {}
   }
-  return { hasConfig: exists, fallback };
+  
+  return { hasConfig: hasYaml || hasDocxtpl, fallback, engineType };
 });
 
 ipcMain.handle('select-template-dir', async () => {

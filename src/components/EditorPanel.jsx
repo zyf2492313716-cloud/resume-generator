@@ -15,7 +15,7 @@ const ALL_SECTION_DEFS = [
   { key: 'skills', icon: Code, title: '技能特长', label: '', fields: [], placeholders: [], default: '' },
 ];
 
-export default function EditorPanel({ resumeData, setResumeData, onNotification, onOpenApiConfig }) {
+export default function EditorPanel({ resumeData, setResumeData, onNotification, onOpenApiConfig, engineType }) {
   const [activeTab, setActiveTab] = useState('form');
   const [aiInput, setAiInput] = useState('');
   const [isParsing, setIsParsing] = useState(false);
@@ -240,6 +240,34 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
               ))}
             </div>
 
+            {/* 模板排版能力智能提示 */}
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: '8px',
+              fontSize: '12.5px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              background: engineType === 'docxtpl' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.08)',
+              border: `1px solid ${engineType === 'docxtpl' ? 'rgba(16,185,129,0.25)' : 'rgba(245,158,11,0.2)'}`,
+              color: engineType === 'docxtpl' ? '#34d399' : '#fbbf24',
+              marginBottom: '4px'
+            }}>
+              <span style={{ fontSize: '18px', display: 'flex', alignItems: 'center' }}>
+                {engineType === 'docxtpl' ? '✨' : '⚠️'}
+              </span>
+              <div>
+                <strong style={{ fontWeight: 600 }}>
+                  {engineType === 'docxtpl' ? '精雕排版模版已启用' : '固定单页排版模版'}
+                </strong>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)', marginTop: '2px', lineHeight: '1.4' }}>
+                  {engineType === 'docxtpl' 
+                    ? '支持多条经历自动延展分页，排版100%可靠，无条数限制。' 
+                    : '建议教育背景和工作经历各控制在 2 条以内，超出可能发生排版重叠溢出。'}
+                </div>
+              </div>
+            </div>
+
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 700, borderBottom: '1px solid var(--border-glass)', paddingBottom: '6px', marginBottom: '10px' }}>
                 <User size={15} style={{ color: 'var(--color-accent)' }} /> 基本信息
@@ -307,6 +335,16 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
                       style={{ ...smallInput, marginTop: '6px', height: '50px', resize: 'vertical' }} />
                   </div>
                 ))}
+                {engineType !== 'docxtpl' && (resumeData[section.key] || []).length >= 3 && (
+                  <div style={{
+                    fontSize: '11px', color: '#f87171', marginTop: '4px', marginBottom: '8px',
+                    display: 'flex', alignItems: 'center', gap: '6px',
+                    background: 'rgba(239,68,68,0.08)', padding: '6px 10px', borderRadius: '4px',
+                    border: '1px solid rgba(239,68,68,0.15)'
+                  }}>
+                    <span>⚠️</span> 当前经历已达 {(resumeData[section.key] || []).length} 条。由于当前模板为固定单页排版，导出 Word 后可能会因文本重叠发生遮挡，推荐切换为精雕模板。
+                  </div>
+                )}
               </div>
             ))}
 

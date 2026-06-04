@@ -16,6 +16,7 @@ export default function App() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [showApiConfig, setShowApiConfig] = useState(false);
+  const [templateEngineType, setTemplateEngineType] = useState('yaml');
   const previewTimerRef = React.useRef(null);
 
   const loadTemplates = useCallback(() => {
@@ -32,6 +33,14 @@ export default function App() {
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  useEffect(() => {
+    if (selectedTemplate && window.electronAPI) {
+      window.electronAPI.checkTemplateConfig(selectedTemplate.path).then(res => {
+        setTemplateEngineType(res.engineType || 'yaml');
+      });
+    }
+  }, [selectedTemplate]);
 
   useEffect(() => {
     if (!selectedTemplate || !window.electronAPI) {
@@ -97,6 +106,7 @@ export default function App() {
         setResumeData={setResumeData}
         onNotification={showNotification}
         onOpenApiConfig={() => setShowApiConfig(true)}
+        engineType={templateEngineType}
       />
 
       <PreviewPanel

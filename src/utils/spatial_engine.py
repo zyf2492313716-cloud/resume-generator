@@ -34,6 +34,22 @@ ALL_KNOWN_NAMES = [
     '白晓云', '王若琳', '沈慧美', '林晓歌', '林月明', '柳云萧',
     '苏语凝', '钟小艾', '冯青', '张小泉', '云海', '陈知页',
     '孟子君', '孟晓思', '关月兰', '刘璇凯', '张全峰', '张悦然',
+    '张晓龙', '张璐瑶', '张筱婕', '张语敏', '张韵艺', '文如菁',
+    '林丹阳', '林博文', '林宇凡', '李元茹', '李小冉', '柳元青',
+    '梁静', '王宇凡', '王晓峰', '王灵筠', '王菲', '王雅丹',
+    '田筱雨', '艾明远', '高凌云', '黄怡佳', '郭洁', '陈洁',
+    '顾元昊', '刘诗芸', '刘明', '周芳', '陆然', '杨阳',
+    '张宇帆', '张莜婕', '朗云', '赵晓', '林萧', '庄晓', '乔彬',
+    '简晓云', '陈韵竹', '林悦然', '周子琪', '张雨涵', '李明轩',
+    '王思远', '刘子涵', '赵雨萱', '孙梦琪', '周雅婷', '吴晓峰',
+    '郑思远', '黄子轩', '林雅琪', '陈思远', '张雅婷', '李雨涵',
+    '王梦琪', '刘子轩', '赵雅婷', '孙雨涵', '周子轩', '吴雅琪',
+    '郑雨萱', '黄梦琪', '林子轩', '陈雅婷', '张思远', '李雅琪',
+    '王雨萱', '刘梦琪', '赵子轩', '孙雅婷', '周雨涵', '吴思远',
+    '郑雅婷', '黄雨涵', '林梦琪', '陈子轩', '张子涵', '李子轩',
+    '王雅婷', '刘雅琪', '赵思远', '孙子轩', '周梦琪', '吴子涵',
+    '郑子轩', '黄雅婷', '林雨涵', '陈雨萱', '林宇凡', '赵晓',
+    '张 芸', '刘 璇', '庄 晓', '乔 彬', '林 萧', '知页', '陈知页',
 ]
 
 def parse_pt_to_emu(val_str):
@@ -71,6 +87,27 @@ class SpatialFiller:
             self.doc_xml = z.read('word/document.xml').decode('utf-8')
         
         self.root = ET.fromstring(self.doc_xml.encode('utf-8'))
+
+        # Load YAML config to expand known names dynamically
+        self.known_names = list(ALL_KNOWN_NAMES)
+        yaml_path = template_path.replace('.docx', '.yaml').replace('.docxtpl.docx', '.yaml')
+        if os.path.exists(yaml_path):
+            try:
+                import yaml
+                with open(yaml_path, 'r', encoding='utf-8') as f:
+                    yaml_config = yaml.safe_load(f) or {}
+                # Extract custom name keywords
+                name_cfg = yaml_config.get('basic_info', {}).get('fields', {}).get('name', {})
+                if name_cfg and 'keywords' in name_cfg:
+                    for kw in name_cfg['keywords']:
+                        if kw not in self.known_names:
+                            self.known_names.append(kw)
+                        # Also add with space removed if applicable
+                        kw_clean = kw.replace(" ", "")
+                        if kw_clean not in self.known_names:
+                            self.known_names.append(kw_clean)
+            except Exception:
+                pass
         
     def _extract_textboxes(self):
         """Extract all non-empty textboxes and map their coordinates (EMU)."""
@@ -255,6 +292,15 @@ class SpatialFiller:
 
         # --- Phase 2: Global Basic Info & Fallback Keyword Scan ---
         # Any box not claimed by a major section, or matches regex
+        label_prefixes = {
+            '姓名': 'name', '名字': 'name', 'Name': 'name',
+            '手机': 'phone', '电话': 'phone', '电话号码': 'phone', 'Phone': 'phone',
+            '邮箱': 'email', 'Email': 'email', 'E-mail': 'email', '邮箱地址': 'email',
+            '微信': 'wechat', 'WeChat': 'wechat', 'QQ': 'wechat',
+            '地址': 'address', 'Address': 'address',
+            '求职意向': 'title', '目标职位': 'title', '应聘职位': 'title', 'Job Target': 'title',
+        }
+
         for box in txbxs:
             node = box['node']
             if node in filled_nodes:
@@ -263,10 +309,26 @@ class SpatialFiller:
             
             modified = False
             new_txt = txt
+
+            # 0. Replace based on label_prefixes (e.g. 姓名：朱七七)
+            for prefix, field in label_prefixes.items():
+                val = basic.get(field)
+                if not val:
+                    continue
+                prefix_pat = r'\s*'.join(list(prefix)) # e.g. 姓\s*名
+                match_colon = re.search(r'(' + prefix_pat + r')\s*[：:]\s*(.+)', new_txt)
+                if match_colon:
+                    raw_val = match_colon.group(2).strip()
+                    if raw_val and raw_val != val and len(raw_val) < 50:
+                        start_idx = match_colon.start(2)
+                        end_idx = match_colon.end(2)
+                        new_txt = new_txt[:start_idx] + val + new_txt[end_idx:]
+                        modified = True
+                        break
             
             # 1. Replace phone numbers (e.g. 13800138000, 152 0032 0007, 138-0000-0000)
             if basic.get('phone'):
-                phone_pat = r'1[3-9]\d(?:\s*\d){8}'
+                phone_pat = r'1[3-9]\d(?:\s*[-–]?\s*\d){8}'
                 if re.search(phone_pat, new_txt):
                     new_txt = re.sub(phone_pat, basic['phone'], new_txt)
                     modified = True
@@ -280,7 +342,7 @@ class SpatialFiller:
                     
             # 3. Replace known placeholder names
             if basic.get('name'):
-                for name in ALL_KNOWN_NAMES:
+                for name in self.known_names:
                     if name in new_txt:
                         new_txt = new_txt.replace(name, basic['name'])
                         modified = True
@@ -341,7 +403,12 @@ class SpatialFiller:
 
     def _fill_section_boxes(self, sec_type, boxes, filled_nodes):
         """Align data array entries sequentially into sorted content boxes."""
-        data_list = self.data.get(sec_type, [])
+        if sec_type == 'summary':
+            val = self.data.get('basicInfo', {}).get('summary', '') or self.data.get('summary', '')
+            data_list = [val] if val else []
+        else:
+            data_list = self.data.get(sec_type, [])
+
         if not data_list:
             # Clear placeholder contents if user has no data for this section
             for box in boxes:
@@ -357,7 +424,8 @@ class SpatialFiller:
             elif sec_type == 'skills':
                 formatted_text = '；'.join(data_list)
             elif sec_type == 'summary':
-                formatted_text = data_list if isinstance(data_list, str) else '\n'.join(data_list)
+                val = data_list[0]
+                formatted_text = val if isinstance(val, str) else '\n'.join(val)
             else:
                 formatted_text = '\n'.join(data_list)
                 
@@ -371,11 +439,15 @@ class SpatialFiller:
             return
 
         # Structural sections: education, experience, projects, studentWork
-        # Map fields to content boxes based on position and key terms
-        assigned_indexes = {} # item_index -> field -> box
-        
+        section_fields = {
+            'education': ['school', 'major', 'degree', 'date'],
+            'experience': ['company', 'role', 'date', 'description'],
+            'projects': ['name', 'role', 'date', 'description'],
+            'studentWork': ['organization', 'role', 'date', 'description']
+        }
+        fields_list = section_fields.get(sec_type, [])
+
         # We group boxes that belong to the same entry index based on Y distance
-        # Boxes closer to each other Y-wise belong to the same entry index
         entry_threshold = 720000 # 2 cm Y-gap
         boxes_by_y = sorted(boxes, key=lambda d: d['y'])
         
@@ -396,59 +468,74 @@ class SpatialFiller:
             
             entry_box_group = entries_boxes[entry_idx]
             
-            # Map specific fields to matching boxes within this entry group
+            assigned_fields = {}  # field -> node
+            unassigned_nodes = []  # list of nodes
+            
+            # Phase 1: Semantic identification
             for box in entry_box_group:
                 node = box['node']
                 txt = box['text']
-                
-                # Check target field semantics from template placeholder
                 field_matched = None
                 
                 if sec_type == 'education':
-                    if any(w in txt for w in ['大学', '学院', '学校', '吉林', '华中', '复旦']):
+                    if any(w in txt for w in ['大学', '学院', '学校', '吉林', '华中', '复旦', '十堰', '美院']):
                         field_matched = 'school'
-                    elif any(w in txt for w in ['专业', '工程', '设计', '管理', '学制']):
+                    elif any(w in txt for w in ['专业', '工程', '设计', '管理', '学制', '传播', '媒体']):
                         field_matched = 'major'
-                    elif any(w in txt for w in ['本科', '硕士', '博士', '学历', '学位']):
+                    elif any(w in txt for w in ['本科', '硕士', '博士', '学历', '学位', '专科', '学位证']):
                         field_matched = 'degree'
-                    elif any(w in txt for w in ['年', '月', '-', '201', '202']):
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
                         field_matched = 'date'
                 elif sec_type == 'experience':
-                    if any(w in txt for w in ['公司', '网络', '科技', '企业', '有限', '医院', '出版社']):
+                    if any(w in txt for w in ['公司', '网络', '科技', '企业', '有限', '医院', '出版社', '单位', '传媒']):
                         field_matched = 'company'
-                    elif any(w in txt for w in ['助理', '经理', '策划', '主管', '专员', '设计师', '编辑', '插画师', '实习生']):
+                    elif any(w in txt for w in ['助理', '经理', '策划', '主管', '专员', '设计师', '编辑', '插画师', '实习生', '角色', '职位', '职责']):
                         field_matched = 'role'
-                    elif any(w in txt for w in ['年', '月', '-', '201', '202']):
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
                         field_matched = 'date'
                     elif len(txt) > 20:
                         field_matched = 'description'
                 elif sec_type == 'projects':
-                    if any(w in txt for w in ['项目', '系统', '平台', '设计', '课题', '研究']):
+                    if any(w in txt for w in ['项目', '系统', '平台', '设计', '课题', '研究', '软件']):
                         field_matched = 'name'
-                    elif any(w in txt for w in ['负责人', '核心', '开发', '研究员', '角色']):
+                    elif any(w in txt for w in ['负责人', '核心', '开发', '研究员', '角色', '职责']):
                         field_matched = 'role'
-                    elif any(w in txt for w in ['年', '月', '-', '201', '202']):
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
                         field_matched = 'date'
                     elif len(txt) > 20:
                         field_matched = 'description'
                 elif sec_type == 'studentWork':
-                    if any(w in txt for w in ['学生会', '社团', '协会', '团委', '办公室', '研究中心']):
+                    if any(w in txt for w in ['学生会', '社团', '协会', '团委', '办公室', '研究中心', '部']):
                         field_matched = 'organization'
-                    elif any(w in txt for w in ['部长', '会长', '干事', '主席', '助理', '副部长']):
+                    elif any(w in txt for w in ['部长', '会长', '干事', '主席', '助理', '副部长', '角色', '职责']):
                         field_matched = 'role'
-                    elif any(w in txt for w in ['年', '月', '-', '201', '202']):
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
                         field_matched = 'date'
                     elif len(txt) > 15:
                         field_matched = 'description'
 
-                if field_matched:
-                    val = user_item.get(field_matched, '')
-                    self._replace_textbox_text(node, val)
-                    filled_nodes.add(node)
+                if field_matched and field_matched in fields_list and field_matched not in assigned_fields:
+                    assigned_fields[field_matched] = node
                 else:
-                    # Fallback default fill if semantic match fails
-                    # Just replace with first non-empty field of user_item that is not yet fully assigned
-                    pass
+                    unassigned_nodes.append(node)
+
+            # Phase 2: Deductive / Fallback assignment
+            for f in fields_list:
+                if f not in assigned_fields and user_item.get(f):
+                    if unassigned_nodes:
+                        node = unassigned_nodes.pop(0)
+                        assigned_fields[f] = node
+
+            # Phase 3: Text replacement
+            for f, node in assigned_fields.items():
+                val = str(user_item.get(f, ''))
+                self._replace_textbox_text(node, val)
+                filled_nodes.add(node)
+
+            # Clear remaining unassigned boxes inside the group to prevent template text leak
+            for node in unassigned_nodes:
+                self._replace_textbox_text(node, "")
+                filled_nodes.add(node)
 
         # Clear remaining unused entry boxes
         for i in range(len(data_list), len(entries_boxes)):
