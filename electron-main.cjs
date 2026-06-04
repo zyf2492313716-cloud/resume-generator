@@ -62,13 +62,22 @@ function scanTemplates() {
   }
 }
 
-function fillDocx(templatePath, resumeData, outputPath) {
+function fillDocx(templatePath, resumeData, outputPath, layoutAdjustments) {
   const tempJson = path.join(app.getPath('temp'), `resume_${Date.now()}.json`);
   fs.writeFileSync(tempJson, JSON.stringify(resumeData, null, 2), 'utf-8');
+  
+  let tempLayoutJson = null;
+  let layoutArg = '';
+  if (layoutAdjustments && Object.keys(layoutAdjustments).length > 0) {
+    tempLayoutJson = path.join(app.getPath('temp'), `layout_${Date.now()}.json`);
+    fs.writeFileSync(tempLayoutJson, JSON.stringify(layoutAdjustments, null, 2), 'utf-8');
+    layoutArg = ` "${tempLayoutJson}"`;
+  }
+
   try {
     // Use template_engine.py with fill_with_fallback (YAML → engine, else → v2)
     execSync(
-      `python3 "${ENGINE_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"`,
+      `python3 "${ENGINE_SCRIPT}" "${tempJson}" "${templatePath}" "${outputPath}"${layoutArg}`,
       { encoding: 'utf-8', timeout: 30000 }
     );
     if (!fs.existsSync(outputPath)) {
@@ -91,6 +100,9 @@ function fillDocx(templatePath, resumeData, outputPath) {
     }
   } finally {
     try { fs.unlinkSync(tempJson); } catch (e) {}
+    if (tempLayoutJson) {
+      try { fs.unlinkSync(tempLayoutJson); } catch (e) {}
+    }
   }
 }
 
@@ -177,12 +189,47 @@ ipcMain.handle('get-template-list', async () => {
   return scanTemplates();
 });
 
+ipcMain.handle('parse-template-layout', async (event, { templatePath }) => {
+  try {
+    const SPATIAL_SCRIPT = app.isPackaged
+      ? path.join(process.resourcesPath, 'utils', 'spatial_engine.py')
+      : path.join(__dirname, 'src/utils/spatial_engine.py');
+    const result = execSync(
+      `python3 "${SPATIAL_SCRIPT}" --export-layout "${templatePath}"`,
+      { encoding: 'utf-8', timeout: 15000 }
+    );
+    return JSON.parse(result);
+  } catch (err) {
+    console.error('Parse template layout error:', err.message);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('check-template-config', async (event, { templatePath }) => {
-  const docxtplPath = templatePath.replace('.docx', '.docxtpl.docx');
-  const hasDocxtpl = fs.existsSync(docxtplPath);
+  let docxtplPath = templatePath.replace('.docx', '.docxtpl.docx');
+  let hasDocxtpl = fs.existsSync(docxtplPath);
   
-  const configPath = templatePath.replace('.docx', '.yaml');
-  const hasYaml = fs.existsSync(configPath);
+  let configPath = templatePath.replace('.docx', '.yaml');
+  let hasYaml = fs.existsSync(configPath);
+  
+  // Fall back to bundled templates dir for config files
+  if (!hasDocxtpl || !hasYaml) {
+    const baseName = path.basename(templatePath);
+    if (!hasDocxtpl) {
+      const altDocxtpl = path.join(BUNDLED_TEMPLATES, baseName.replace('.docx', '.docxtpl.docx'));
+      if (fs.existsSync(altDocxtpl)) {
+        docxtplPath = altDocxtpl;
+        hasDocxtpl = true;
+      }
+    }
+    if (!hasYaml) {
+      const altYaml = path.join(BUNDLED_TEMPLATES, baseName.replace('.docx', '.yaml'));
+      if (fs.existsSync(altYaml)) {
+        configPath = altYaml;
+        hasYaml = true;
+      }
+    }
+  }
   
   let engineType = 'spatial';
   let fallback = false;
@@ -234,14 +281,14 @@ ipcMain.handle('save-api-config', async (event, apiCfg) => {
   return { success: true };
 });
 
-ipcMain.handle('render-preview', async (event, { templateName, resumeData }) => {
+ipcMain.handle('render-preview', async (event, { templateName, resumeData, layoutAdjustments }) => {
   const template = scanTemplates().find(t => t.name === templateName);
   if (!template) return { success: false, error: '模板未找到' };
 
   const tempDir = app.getPath('temp');
   const tempDocx = path.join(tempDir, `preview_${Date.now()}.docx`);
 
-  const filled = fillDocx(template.path, resumeData, tempDocx);
+  const filled = fillDocx(template.path, resumeData, tempDocx, layoutAdjustments);
   if (!filled) return { success: false, error: '模板填充失败' };
 
   try {
@@ -254,7 +301,7 @@ ipcMain.handle('render-preview', async (event, { templateName, resumeData }) => 
   }
 });
 
-ipcMain.on('export-to-word', async (event, { templateName, resumeData }) => {
+ipcMain.on('export-to-word', async (event, { templateName, resumeData, layoutAdjustments }) => {
   if (!mainWindow) return;
 
   const template = scanTemplates().find(t => t.name === templateName);
@@ -278,8 +325,19 @@ ipcMain.on('export-to-word', async (event, { templateName, resumeData }) => {
   const tempJson = path.join(app.getPath('temp'), `export_${Date.now()}.json`);
   fs.writeFileSync(tempJson, JSON.stringify(resumeData, null, 2), 'utf-8');
 
-  exec(`python3 "${ENGINE_SCRIPT}" "${tempJson}" "${template.path}" "${filePath}"`, { encoding: 'utf-8', timeout: 30000 }, (error, stdout, stderr) => {
+  let tempLayoutJson = null;
+  let layoutArg = '';
+  if (layoutAdjustments && Object.keys(layoutAdjustments).length > 0) {
+    tempLayoutJson = path.join(app.getPath('temp'), `export_layout_${Date.now()}.json`);
+    fs.writeFileSync(tempLayoutJson, JSON.stringify(layoutAdjustments, null, 2), 'utf-8');
+    layoutArg = ` "${tempLayoutJson}"`;
+  }
+
+  exec(`python3 "${ENGINE_SCRIPT}" "${tempJson}" "${template.path}" "${filePath}"${layoutArg}`, { encoding: 'utf-8', timeout: 30000 }, (error, stdout, stderr) => {
     try { fs.unlinkSync(tempJson); } catch (e) {}
+    if (tempLayoutJson) {
+      try { fs.unlinkSync(tempLayoutJson); } catch (e) {}
+    }
     if (error) {
       // Fallback to v2
       const tempJson2 = path.join(app.getPath('temp'), `export2_${Date.now()}.json`);
@@ -300,7 +358,7 @@ ipcMain.on('export-to-word', async (event, { templateName, resumeData }) => {
   });
 });
 
-ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resumeData }) => {
+ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resumeData, layoutAdjustments }) => {
   if (!mainWindow) return;
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
     title: '导出 PDF',
@@ -319,7 +377,7 @@ ipcMain.on('print-to-pdf', async (event, { defaultFileName, templateName, resume
       if (template) {
         const tempDir = app.getPath('temp');
         const tempDocx = path.join(tempDir, `pdf_${Date.now()}.docx`);
-        const filled = fillDocx(template.path, resumeData, tempDocx);
+        const filled = fillDocx(template.path, resumeData, tempDocx, layoutAdjustments);
         if (filled) {
           const result = await mammoth.convertToHtml({ path: tempDocx });
           html = result.value;

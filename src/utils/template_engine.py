@@ -16,9 +16,12 @@ Built-in capabilities:
 
 # Embedded dependencies (vendored at build time)
 import os as _os
-_libs_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'libs')
+_utils_dir = _os.path.dirname(_os.path.abspath(__file__))
+import sys as _sys
+if _utils_dir not in _sys.path:
+    _sys.path.insert(0, _utils_dir)
+_libs_path = _os.path.join(_utils_dir, 'libs')
 if _os.path.exists(_libs_path):
-    import sys as _sys
     _sys.path.insert(0, _libs_path)
 
 import zipfile
@@ -764,36 +767,162 @@ def fill_with_docxtpl(template_path: str, data: dict, output_path: str) -> bool:
         for k, v in basic.items():
             context[k] = v
             
-        # Map list section data to flat keys used by mark_template_docxtpl.py
+        # Explicit mapping for basic info fields
+        context['name'] = basic.get('name', '')
+        context['title'] = basic.get('title', '')
+        context['phone'] = basic.get('phone', '')
+        context['email'] = basic.get('email', '')
+        context['wechat'] = basic.get('wechat', '')
+        context['address'] = basic.get('address', '')
+        context['birthday'] = basic.get('birthday', '')
+        context['degree'] = basic.get('degree', '')
+        context['major'] = basic.get('major', '')
+        context['summary'] = basic.get('summary', '') or data.get('summary', '')
+        
+        # Map list sections
         edus = data.get('education', [])
+        exps = data.get('experience', [])
+        sw_list = data.get('studentWork', [])
+        honors = data.get('honors', [])
+        skills = data.get('skills', [])
+
+        # For 文艺单页01 basic info compatibility
+        context['basic_school'] = edus[0].get('school', '') if edus else ''
+        context['basic_major'] = edus[0].get('major', '') if edus else ''
+        context['age'] = basic.get('birthday', '')
+        
+        # Legacy compatibility (flat first item)
         if edus:
             context['edu_school'] = edus[0].get('school', '')
             context['edu_major'] = edus[0].get('major', '')
             context['edu_degree'] = edus[0].get('degree', '')
             context['edu_date'] = edus[0].get('date', '')
-            
-        exps = data.get('experience', [])
         if exps:
             context['exp_company'] = exps[0].get('company', '')
             context['exp_role'] = exps[0].get('role', '')
             context['exp_date'] = exps[0].get('date', '')
             context['exp_desc'] = exps[0].get('description', '')
+
+        # Flat indexed mapping for TextBox level layout templates (up to 2 items)
+        for i in range(1, 3):
+            # Education
+            edu = edus[i-1] if len(edus) >= i else {}
+            context[f'edu_school{i}'] = edu.get('school', '')
+            context[f'edu_major{i}'] = edu.get('major', '')
+            context[f'edu_degree{i}'] = edu.get('degree', '')
+            context[f'edu_date{i}'] = edu.get('date', '')
+            context[f'edu_desc{i}'] = edu.get('description', '')
+            context[f'edu_slash{i}'] = '/' if edu.get('major') or edu.get('degree') else ''
             
-        if 'address' in basic:
-            context['address'] = basic['address']
-        if 'wechat' in basic:
-            context['wechat'] = basic['wechat']
-            
-        honors = data.get('honors', [])
+            # Experience
+            exp = exps[i-1] if len(exps) >= i else {}
+            context[f'exp_company{i}'] = exp.get('company', '')
+            context[f'exp_role{i}'] = exp.get('role', '')
+            context[f'exp_date{i}'] = exp.get('date', '')
+            context[f'exp_desc{i}'] = exp.get('description', '')
+
+            # Student Work
+            sw = sw_list[i-1] if len(sw_list) >= i else {}
+            context[f'sw_org{i}'] = sw.get('organization', '')
+            context[f'sw_role{i}'] = sw.get('role', '')
+            context[f'sw_date{i}'] = sw.get('date', '')
+            context[f'sw_desc{i}'] = sw.get('description', '')
+
+        # Honors
         if honors:
             context['honors'] = '\n'.join('• ' + h if not h.startswith('•') and not h.startswith('-') else h for h in honors)
+        else:
+            context['honors'] = ''
             
-        skills = data.get('skills', [])
+        # Skills
         if skills:
             context['skills'] = '；'.join(skills)
-            
+            for idx in range(1, 4):
+                context[f'skill{idx}'] = skills[idx-1] if len(skills) >= idx else ''
+        else:
+            context['skills'] = ''
+            for idx in range(1, 4):
+                context[f'skill{idx}'] = ''
+
         doc.render(context)
         doc.save(output_path)
+        
+        # Post-process the generated document to fix layout details
+        try:
+            with zipfile.ZipFile(output_path, 'r') as zin:
+                xml_bytes = zin.read('word/document.xml')
+            root = ET.fromstring(xml_bytes)
+            
+            # 1. Remove empty marked paragraphs to clean up dangling bullet points
+            p_to_remove = []
+            for p in root.iter(f'{{{NS}}}p'):
+                if p.get('delIfEmpty') == '1':
+                    all_text = "".join(t.text for t in p.iter(f'{{{NS}}}t') if t.text).strip()
+                    # If paragraph text is empty or only bullet punctuation
+                    if not all_text or all_text in ['■', '•', '*', '-', ':', '：']:
+                        p_to_remove.append(p)
+            for p in p_to_remove:
+                parent = p.getparent()
+                if parent is not None:
+                    parent.remove(p)
+            
+            # 2. Prevent long email addresses from wrapping
+            for r in root.iter(f'{{{NS}}}r'):
+                for t in r.iter(f'{{{NS}}}t'):
+                    if t.text and '@' in t.text and len(t.text) > 18:
+                        rPr = r.find(f'{{{NS}}}rPr')
+                        if rPr is None:
+                            rPr = ET.Element(f'{{{NS}}}rPr')
+                            r.insert(0, rPr)
+                        sz = rPr.find(f'{{{NS}}}sz')
+                        if sz is None:
+                            sz = ET.Element(f'{{{NS}}}sz')
+                            rPr.append(sz)
+                        szCs = rPr.find(f'{{{NS}}}szCs')
+                        if szCs is None:
+                            szCs = ET.Element(f'{{{NS}}}szCs')
+                            rPr.append(szCs)
+                        sz.set(f'{{{NS}}}val', '16')  # 8pt
+                        szCs.set(f'{{{NS}}}val', '16')
+            
+            # 3. Resize long skill labels to prevent text overlaps and line wraps
+            user_skills = [context.get(f'skill{i}', '') for i in range(1, 4)]
+            user_skills = [s for s in user_skills if s]
+            for r in root.iter(f'{{{NS}}}r'):
+                for t in r.iter(f'{{{NS}}}t'):
+                    if t.text and t.text in user_skills and len(t.text) > 6:
+                        rPr = r.find(f'{{{NS}}}rPr')
+                        if rPr is None:
+                            rPr = ET.Element(f'{{{NS}}}rPr')
+                            r.insert(0, rPr)
+                        sz = rPr.find(f'{{{NS}}}sz')
+                        if sz is None:
+                            sz = ET.Element(f'{{{NS}}}sz')
+                            rPr.append(sz)
+                        szCs = rPr.find(f'{{{NS}}}szCs')
+                        if szCs is None:
+                            szCs = ET.Element(f'{{{NS}}}szCs')
+                            rPr.append(szCs)
+                        length = len(t.text)
+                        new_sz = '12' if length > 14 else ('14' if length > 9 else '16')  # 6pt, 7pt, 8pt
+                        sz.set(f'{{{NS}}}val', new_sz)
+                        szCs.set(f'{{{NS}}}val', new_sz)
+            
+            # Write back
+            xml_out = ET.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
+            temp_zip_path = output_path + '.tmp.zip'
+            with zipfile.ZipFile(output_path, 'r') as zin:
+                with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zout:
+                    for item in zin.infolist():
+                        if item.filename == 'word/document.xml':
+                            zout.writestr(item, xml_out)
+                        else:
+                            zout.writestr(item, zin.read(item.filename))
+            _os.replace(temp_zip_path, output_path)
+            print("Post-processing: Empty paragraphs and fonts cleaned up successfully.", file=_sys.stderr)
+        except Exception as pe:
+            print(f"Post-processing warning: {pe}", file=_sys.stderr)
+
         print(f"{_os.path.basename(template_path)}:docxtpl:OK", file=_sys.stderr)
         return True
     except Exception as e:
@@ -832,7 +961,7 @@ def fill_with_config_path(template_path: str, config_path: str, data: dict, outp
     return fill(template_path, config, data, output_path)
 
 
-def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool:
+def fill_with_fallback(template_path: str, data: dict, output_path: str, layout_adjustments: dict = None) -> bool:
     """Fill a template using docxtpl/YAML config/spatial with v2 fallback.
 
     Priority:
@@ -848,6 +977,12 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
 
     # Level 1: Check for manually marked template (.docxtpl.docx)
     docxtpl_path = template_path.replace('.docx', '.docxtpl.docx')
+    if not os.path.exists(docxtpl_path):
+        bundled_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'))
+        alt_docxtpl = os.path.join(bundled_dir, os.path.basename(docxtpl_path))
+        if os.path.exists(alt_docxtpl):
+            docxtpl_path = alt_docxtpl
+
     if os.path.exists(docxtpl_path) and has_jinja2_tags(docxtpl_path):
         return fill_with_docxtpl(docxtpl_path, data, output_path)
 
@@ -867,7 +1002,7 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
     if base_name in spatial_whitelist and has_textboxes(template_path):
         try:
             from spatial_engine import fill_spatial
-            result = fill_spatial(template_path, data, output_path)
+            result = fill_spatial(template_path, data, output_path, layout_adjustments)
             if result:
                 print(f"{os.path.basename(template_path)}:spatial:OK", file=sys.stderr)
                 return True
@@ -876,6 +1011,12 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
 
     # Level 2: YAML config (for flow layouts)
     config_path = template_path.replace('.docx', '.yaml')
+    if not os.path.exists(config_path):
+        bundled_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'))
+        alt_config = os.path.join(bundled_dir, os.path.basename(config_path))
+        if os.path.exists(alt_config):
+            config_path = alt_config
+
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
@@ -946,6 +1087,16 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # JSON data mode: use fill_with_fallback
-    success = fill_with_fallback(template_path, data, output_path)
+    layout_adjustments = None
+    if len(sys.argv) > 4:
+        layout_adj_path = sys.argv[4]
+        if os.path.exists(layout_adj_path):
+            try:
+                with open(layout_adj_path, 'r', encoding='utf-8') as f:
+                    layout_adjustments = _json.load(f)
+            except Exception as le:
+                print(f"Error loading layout adjustments: {le}", file=sys.stderr)
+
+    success = fill_with_fallback(template_path, data, output_path, layout_adjustments)
     print(f"{'OK' if success else 'WARN'}: {output_path}")
     sys.exit(0 if success else 1)

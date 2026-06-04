@@ -93,6 +93,12 @@ class SpatialFiller:
         # Load YAML config to expand known names dynamically
         self.known_names = list(ALL_KNOWN_NAMES)
         yaml_path = template_path.replace('.docx', '.yaml').replace('.docxtpl.docx', '.yaml')
+        if not os.path.exists(yaml_path):
+            bundled_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates'))
+            alt_yaml = os.path.join(bundled_dir, os.path.basename(yaml_path))
+            if os.path.exists(alt_yaml):
+                yaml_path = alt_yaml
+
         if os.path.exists(yaml_path):
             try:
                 import yaml
@@ -112,7 +118,7 @@ class SpatialFiller:
                 pass
         
     def _extract_textboxes(self):
-        """Extract all non-empty textboxes and map their coordinates (EMU)."""
+        """Extract all non-empty textboxes and map their coordinates (EMU) and sizes, along with font properties."""
         txbxs = []
         for txbx in self.root.iter(f'{{{NS_W}}}txbxContent'):
             # Extract own text
@@ -124,7 +130,7 @@ class SpatialFiller:
             if not full_text:
                 continue
                 
-            x, y = None, None
+            x, y, w, h = None, None, None, None
             
             # 1. Check if nested in drawing anchor
             parent = txbx.getparent()
@@ -146,6 +152,11 @@ class SpatialFiller:
                         x = int(offset_h.text)
                     if offset_v is not None and offset_v.text:
                         y = int(offset_v.text)
+                    
+                    extent = anchor.find(f'{{{NS_WP}}}extent')
+                    if extent is not None:
+                        w = int(extent.get('cx', '0'))
+                        h = int(extent.get('cy', '0'))
             
             # 2. Check VML shape if drawing didn't yield coordinates
             if x is None or y is None:
@@ -171,12 +182,61 @@ class SpatialFiller:
                         x = parse_pt_to_emu(margin_left)
                     if margin_top:
                         y = parse_pt_to_emu(margin_top)
+                        
+                    width_str = style_dict.get('width')
+                    height_str = style_dict.get('height')
+                    if width_str:
+                        w = parse_pt_to_emu(width_str)
+                    if height_str:
+                        h = parse_pt_to_emu(height_str)
+            
+            # Extract basic font properties for frontend interactive rendering
+            font_size = 10.5
+            color = '#333333'
+            bold = False
+            align = 'left'
+            
+            jc = txbx.find(f'.//{{{NS_W}}}jc')
+            if jc is not None and jc.get(f'{{{NS_W}}}val'):
+                val = jc.get(f'{{{NS_W}}}val')
+                if val in ['left', 'right', 'center']:
+                    align = val
+                elif val == 'both':
+                    align = 'justify'
+            
+            r = txbx.find(f'.//{{{NS_W}}}r')
+            if r is not None:
+                rPr = r.find(f'{{{NS_W}}}rPr')
+                if rPr is not None:
+                    sz = rPr.find(f'{{{NS_W}}}sz')
+                    if sz is not None and sz.get(f'{{{NS_W}}}val'):
+                        try:
+                            font_size = float(sz.get(f'{{{NS_W}}}val')) / 2.0
+                        except ValueError:
+                            pass
+                    color_node = rPr.find(f'{{{NS_W}}}color')
+                    if color_node is not None and color_node.get(f'{{{NS_W}}}val'):
+                        c_val = color_node.get(f'{{{NS_W}}}val')
+                        color = '#000000' if c_val == 'auto' else f'#{c_val}'
+                    b = rPr.find(f'{{{NS_W}}}b')
+                    if b is not None:
+                        bold = True
+
+            # Calculate path ID
+            xpath = self.root.getroottree().getpath(txbx)
             
             txbxs.append({
                 'node': txbx,
                 'text': full_text,
+                'xpath': xpath,
                 'x': x if x is not None else 0,
-                'y': y if y is not None else 0
+                'y': y if y is not None else 0,
+                'w': w if w is not None else 2286000,  # default ~180pt
+                'h': h if h is not None else 1270000,  # default ~100pt
+                'fontSize': font_size,
+                'color': color,
+                'bold': bold,
+                'align': align
             })
             
         return txbxs
@@ -234,7 +294,10 @@ class SpatialFiller:
                         return sec_type, pat, ""
         return None, None, None
 
-    def fill(self, output_path: str) -> bool:
+    def fill(self, output_path: str, layout_adjustments: dict = None) -> bool:
+        if layout_adjustments:
+            self._apply_layout_adjustments(layout_adjustments)
+            
         txbxs = self._extract_textboxes()
         if not txbxs:
             self.warnings.append("No absolute layout textboxes found.")
@@ -579,7 +642,365 @@ class SpatialFiller:
                 filled_nodes.add(box['node'])
 
 
-def fill_spatial(template_path: str, data: dict, output_path: str) -> bool:
+    def _apply_layout_adjustments(self, adjustments):
+        """Apply frontend layout coordinates adjustments to Document XML."""
+        EMU_PER_PX_X = 7560000 / 595.0
+        EMU_PER_PX_Y = 10692000 / 842.0
+        
+        namespaces = {k: v for k, v in self.root.nsmap.items() if k is not None}
+        defaults = {
+            'w': NS_W,
+            'mc': 'http://schemas.openxmlformats.org/markup-compatibility/2006',
+            'wp': NS_WP,
+            'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+            'wps': 'http://schemas.openxmlformats.org/officeWord/2010/wordprocessingShape',
+            'v': NS_V,
+            'o': 'urn:schemas-microsoft-com:office:office',
+            'w14': 'http://schemas.microsoft.com/office/word/2010/wordml',
+            'w15': 'http://schemas.microsoft.com/office/word/2012/wordml',
+            'wp14': 'http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing',
+            'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+            'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+        }
+        for k, v in defaults.items():
+            if k not in namespaces:
+                namespaces[k] = v
+        for xpath, adj in adjustments.items():
+            nodes = self.root.xpath(xpath, namespaces=namespaces)
+            if not nodes:
+                continue
+            txbx = nodes[0]
+            
+            # 1. Update Drawing anchor posOffset & extent if present
+            parent = txbx.getparent()
+            drawing_node = None
+            while parent is not None:
+                if parent.tag == f'{{{NS_W}}}drawing':
+                    drawing_node = parent
+                    break
+                parent = parent.getparent()
+                
+            if drawing_node is not None:
+                anchor = drawing_node.find(f'{{{NS_WP}}}anchor')
+                if anchor is not None:
+                    pos_h = anchor.find(f'{{{NS_WP}}}positionH')
+                    pos_v = anchor.find(f'{{{NS_WP}}}positionV')
+                    offset_h = pos_h.find(f'{{{NS_WP}}}posOffset') if pos_h is not None else None
+                    offset_v = pos_v.find(f'{{{NS_WP}}}posOffset') if pos_v is not None else None
+                    extent = anchor.find(f'{{{NS_WP}}}extent')
+                    
+                    if 'x' in adj and offset_h is not None:
+                        offset_h.text = str(int(adj['x'] * EMU_PER_PX_X))
+                    if 'y' in adj and offset_v is not None:
+                        offset_v.text = str(int(adj['y'] * EMU_PER_PX_Y))
+                    if 'w' in adj and extent is not None:
+                        extent.set('cx', str(int(adj['w'] * EMU_PER_PX_X)))
+                    if 'h' in adj and extent is not None:
+                        extent.set('cy', str(int(adj['h'] * EMU_PER_PX_Y)))
+                        
+            # 2. Update VML shape style if present
+            parent = txbx.getparent()
+            shape_node = None
+            while parent is not None:
+                if parent.tag == f'{{{NS_V}}}shape':
+                    shape_node = parent
+                    break
+                parent = parent.getparent()
+                
+            if shape_node is not None:
+                style = shape_node.get('style', '')
+                style_dict = {}
+                style_keys_case = {}
+                for item in style.split(';'):
+                    if ':' in item:
+                        parts = item.split(':', 1)
+                        key = parts[0].strip()
+                        val = parts[1].strip()
+                        style_dict[key.lower()] = val
+                        style_keys_case[key.lower()] = key
+                
+                if 'x' in adj:
+                    pt_val = (adj['x'] * EMU_PER_PX_X) / 12700.0
+                    style_dict['margin-left'] = f"{pt_val:.2f}pt"
+                if 'y' in adj:
+                    pt_val = (adj['y'] * EMU_PER_PX_Y) / 12700.0
+                    style_dict['margin-top'] = f"{pt_val:.2f}pt"
+                if 'w' in adj:
+                    pt_val = (adj['w'] * EMU_PER_PX_X) / 12700.0
+                    style_dict['width'] = f"{pt_val:.2f}pt"
+                if 'h' in adj:
+                    pt_val = (adj['h'] * EMU_PER_PX_Y) / 12700.0
+                    style_dict['height'] = f"{pt_val:.2f}pt"
+                
+                new_style_items = []
+                for k, v in style_dict.items():
+                    orig_key = style_keys_case.get(k, k)
+                    new_style_items.append(f"{orig_key}:{v}")
+                shape_node.set('style', ";".join(new_style_items))
+
+            # 3. Update Font Size and Color inside the textbox runs if specified
+            if 'fontSize' in adj or 'color' in adj:
+                for rPr in txbx.xpath('.//w:rPr', namespaces={'w': NS_W}):
+                    if 'fontSize' in adj:
+                        half_pts = str(int(round(adj['fontSize'] * 2.0)))
+                        sz = rPr.find(f'{{{NS_W}}}sz')
+                        if sz is None:
+                            sz = ET.Element(f'{{{NS_W}}}sz')
+                            rPr.append(sz)
+                        sz.set(f'{{{NS_W}}}val', half_pts)
+                        
+                        szCs = rPr.find(f'{{{NS_W}}}szCs')
+                        if szCs is None:
+                            szCs = ET.Element(f'{{{NS_W}}}szCs')
+                            rPr.append(szCs)
+                        szCs.set(f'{{{NS_W}}}val', half_pts)
+                        
+                    if 'color' in adj:
+                        hex_color = adj['color'].replace('#', '').strip()
+                        color_node = rPr.find(f'{{{NS_W}}}color')
+                        if color_node is None:
+                            color_node = ET.Element(f'{{{NS_W}}}color')
+                            rPr.append(color_node)
+                        color_node.set(f'{{{NS_W}}}val', hex_color)
+
+    def _assign_structural_section_roles(self, sec_type, boxes, assigned_nodes):
+        if sec_type in ('honors', 'skills', 'interests', 'summary'):
+            if boxes:
+                assigned_nodes[boxes[0]['xpath']] = sec_type if sec_type != 'summary' else 'basicInfo.summary'
+                for b in boxes[1:]:
+                    assigned_nodes[b['xpath']] = f"{sec_type}.unused"
+            return
+
+        section_fields = {
+            'education': ['school', 'major', 'degree', 'date'],
+            'experience': ['company', 'role', 'date', 'description'],
+            'projects': ['name', 'role', 'date', 'description'],
+            'studentWork': ['organization', 'role', 'date', 'description']
+        }
+        fields_list = section_fields.get(sec_type, [])
+
+        entry_threshold = 720000
+        boxes_by_y = sorted(boxes, key=lambda d: d['y'])
+        
+        entries_boxes = []
+        current_entry = [boxes_by_y[0]]
+        for box in boxes_by_y[1:]:
+            if box['y'] - current_entry[-1]['y'] < entry_threshold:
+                current_entry.append(box)
+            else:
+                entries_boxes.append(current_entry)
+                current_entry = [box]
+        entries_boxes.append(current_entry)
+
+        for entry_idx, entry_box_group in enumerate(entries_boxes):
+            assigned_fields = {}
+            unassigned_nodes = []
+            
+            for box in entry_box_group:
+                txt = box['text']
+                xpath = box['xpath']
+                field_matched = None
+                
+                if sec_type == 'education':
+                    if any(w in txt for w in ['大学', '学院', '学校', '吉林', '华中', '复旦', '十堰', '美院']):
+                        field_matched = 'school'
+                    elif any(w in txt for w in ['专业', '工程', '设计', '管理', '学制', '传播', '媒体']):
+                        field_matched = 'major'
+                    elif any(w in txt for w in ['本科', '硕士', '博士', '学历', '学位', '专科', '学位证']):
+                        field_matched = 'degree'
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
+                        field_matched = 'date'
+                elif sec_type == 'experience':
+                    if any(w in txt for w in ['公司', '网络', '科技', '企业', '有限', '医院', '出版社', '单位', '传媒']):
+                        field_matched = 'company'
+                    elif any(w in txt for w in ['助理', '经理', '策划', '主管', '专员', '设计师', '编辑', '插画师', '实习生', '角色', '职位', '职责']):
+                        field_matched = 'role'
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
+                        field_matched = 'date'
+                    elif len(txt) > 20:
+                        field_matched = 'description'
+                elif sec_type == 'projects':
+                    if any(w in txt for w in ['项目', '系统', '平台', '设计', '课题', '研究', '软件']):
+                        field_matched = 'name'
+                    elif any(w in txt for w in ['负责人', '核心', '开发', '研究员', '角色', '职责']):
+                        field_matched = 'role'
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
+                        field_matched = 'date'
+                    elif len(txt) > 20:
+                        field_matched = 'description'
+                elif sec_type == 'studentWork':
+                    if any(w in txt for w in ['学生会', '社团', '协会', '团委', '办公室', '研究中心', '部']):
+                        field_matched = 'organization'
+                    elif any(w in txt for w in ['部长', '会长', '干事', '主席', '助理', '副部长', '角色', '职责']):
+                        field_matched = 'role'
+                    elif any(w in txt for w in ['年', '月', '-', '201', '202', '至今']):
+                        field_matched = 'date'
+                    elif len(txt) > 15:
+                        field_matched = 'description'
+
+                if field_matched and field_matched in fields_list and field_matched not in assigned_fields:
+                    assigned_fields[field_matched] = xpath
+                else:
+                    unassigned_nodes.append(xpath)
+
+            # Deductive / Fallback assignment for this entry
+            for f in fields_list:
+                if f not in assigned_fields:
+                    if unassigned_nodes:
+                        xpath = unassigned_nodes.pop(0)
+                        assigned_fields[f] = xpath
+
+            for f, xpath in assigned_fields.items():
+                assigned_nodes[xpath] = f"{sec_type}.{entry_idx}.{f}"
+                
+            for xpath in unassigned_nodes:
+                assigned_nodes[xpath] = f"{sec_type}.{entry_idx}.unused"
+
+    def _analyze_roles(self, txbxs):
+        """Analyze semantic roles for each textbox using layout structure and placeholder text."""
+        columns = self._cluster_columns(txbxs)
+        assigned_nodes = {}
+        
+        for col in columns:
+            sorted_boxes = sorted(col, key=lambda d: d['y'])
+            current_section = None
+            section_boxes = []
+            
+            for box in sorted_boxes:
+                full_txt = box['text']
+                xpath = box['xpath']
+                
+                is_header = False
+                for sec_type, patterns in SECTION_PATTERNS.items():
+                    if full_txt in patterns and len(full_txt) < 15:
+                        current_section = sec_type
+                        section_boxes = []
+                        is_header = True
+                        assigned_nodes[xpath] = f"header.{sec_type}"
+                        break
+                        
+                if is_header:
+                    continue
+                    
+                if self._is_basic_info_box(full_txt):
+                    continue
+                    
+                sec_type, pat, rest = self._parse_inline_header(full_txt)
+                if sec_type:
+                    if current_section and section_boxes:
+                        self._assign_structural_section_roles(current_section, section_boxes, assigned_nodes)
+                    assigned_nodes[xpath] = f"{sec_type}.0.inline"
+                    current_section = None
+                    section_boxes = []
+                    continue
+                
+                if current_section:
+                    section_boxes.append(box)
+                    
+            if current_section and section_boxes:
+                self._assign_structural_section_roles(current_section, section_boxes, assigned_nodes)
+
+        label_prefixes = {
+            '姓名': 'name', '名字': 'name', 'Name': 'name',
+            '手机': 'phone', '电话': 'phone', '电话号码': 'phone', 'Phone': 'phone',
+            '邮箱': 'email', 'Email': 'email', 'E-mail': 'email', '邮箱地址': 'email',
+            '微信': 'wechat', 'WeChat': 'wechat', 'QQ': 'wechat',
+            '地址': 'address', 'Address': 'address',
+            '求职意向': 'title', '目标职位': 'title', '应聘职位': 'title', 'Job Target': 'title',
+        }
+
+        for box in txbxs:
+            xpath = box['xpath']
+            if xpath in assigned_nodes:
+                continue
+                
+            txt = box['text']
+            
+            if re.search(r'1[3-9]\d{8,9}', txt.replace(' ', '')):
+                assigned_nodes[xpath] = "basicInfo.phone"
+                continue
+                
+            if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', txt):
+                assigned_nodes[xpath] = "basicInfo.email"
+                continue
+                
+            has_name = False
+            for name in self.known_names:
+                if name in txt:
+                    assigned_nodes[xpath] = "basicInfo.name"
+                    has_name = True
+                    break
+            if has_name:
+                continue
+
+            has_title = False
+            for title in ['平面设计', '网页设计师', '美术主编', 'UI设计师', '销售员岗位']:
+                if title in txt:
+                    assigned_nodes[xpath] = "basicInfo.title"
+                    has_title = True
+                    break
+            if has_title:
+                continue
+                
+            has_prefix = False
+            for prefix, field in label_prefixes.items():
+                prefix_pat = r'\s*'.join(list(prefix))
+                if re.search(r'(' + prefix_pat + r')\s*[：:]', txt):
+                    assigned_nodes[xpath] = f"basicInfo.{field}"
+                    has_prefix = True
+                    break
+            if has_prefix:
+                continue
+                
+            if any(w in txt for w in ['自我评价', '个人评价', '关于我', '自我介绍']):
+                assigned_nodes[xpath] = "basicInfo.summary"
+                continue
+                
+        for box in txbxs:
+            box['role'] = assigned_nodes.get(box['xpath'], None)
+
+    def export_layout(self) -> dict:
+        """Export coordinates and texts in pixel scale (A4: 595 x 842)."""
+        txbxs = self._extract_textboxes()
+        self._analyze_roles(txbxs)
+        EMU_PER_PX_X = 7560000 / 595.0
+        EMU_PER_PX_Y = 10692000 / 842.0
+        
+        pages_layout = []
+        for box in txbxs:
+            pages_layout.append({
+                'id': box['xpath'],
+                'x': int(round(box['x'] / EMU_PER_PX_X)),
+                'y': int(round(box['y'] / EMU_PER_PX_Y)),
+                'w': int(round(box['w'] / EMU_PER_PX_X)),
+                'h': int(round(box['h'] / EMU_PER_PX_Y)),
+                'text': box['text'],
+                'role': box['role'],
+                'fontSize': box['fontSize'],
+                'color': box['color'],
+                'bold': box['bold'],
+                'align': box['align']
+            })
+        return {
+            'width': 595,
+            'height': 842,
+            'elements': pages_layout
+        }
+
+
+def fill_spatial(template_path: str, data: dict, output_path: str, layout_adjustments: dict = None) -> bool:
     """Convenience endpoint for spatial filling."""
     filler = SpatialFiller(template_path, data)
-    return filler.fill(output_path)
+    return filler.fill(output_path, layout_adjustments)
+
+
+if __name__ == '__main__':
+    import json
+    if len(sys.argv) > 2 and sys.argv[1] == '--export-layout':
+        template_path = sys.argv[2]
+        try:
+            filler = SpatialFiller(template_path, {})
+            layout_data = filler.export_layout()
+            print(json.dumps(layout_data, ensure_ascii=False))
+        except Exception as e:
+            print(json.dumps({"error": str(e)}))

@@ -38,9 +38,28 @@ export default function TemplatePanel({
   const getStatusIcon = (name) => {
     const s = configStatus[name];
     if (!s) return null;
-    if (s.hasConfig && !s.fallback) return <span title="YAML 配置" style={{ color: '#4ade80', fontSize: '10px', fontWeight: 700 }}>✓</span>;
-    if (s.hasConfig && s.fallback) return <span title="YAML + v2 兜底" style={{ color: '#fb923c', fontSize: '10px', fontWeight: 700 }}>○</span>;
-    return <span title="v2 填充" style={{ color: '#6b7280', fontSize: '10px' }}>—</span>;
+    if (s.engineType === 'docxtpl') {
+      return (
+        <span 
+          title="✨ 精雕排版模版：支持多经历自动分页，无条目限制" 
+          style={{ 
+            color: '#10b981', 
+            background: 'rgba(16,185,129,0.12)',
+            border: '1px solid rgba(16,185,129,0.3)',
+            borderRadius: '3px',
+            padding: '1px 4px',
+            fontSize: '9px',
+            fontWeight: 700,
+            marginLeft: 'auto'
+          }}
+        >
+          ✨ 精雕
+        </span>
+      );
+    }
+    if (s.hasConfig && !s.fallback) return <span title="YAML 配置已加载" style={{ color: 'rgba(255,255,255,0.3)', fontSize: '10px', marginLeft: 'auto' }}>✓</span>;
+    if (s.hasConfig && s.fallback) return <span title="YAML + v2 兜底" style={{ color: '#fb923c', fontSize: '10px', fontWeight: 700, marginLeft: 'auto' }}>○</span>;
+    return <span title="v2 填充" style={{ color: '#6b7280', fontSize: '10px', marginLeft: 'auto' }}>—</span>;
   };
   const grouped = {};
   templateList.forEach(t => {
@@ -124,7 +143,7 @@ export default function TemplatePanel({
                         color: isSelected ? '#fff' : 'var(--color-text-muted)',
                         transition: 'all 0.15s'
                       }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
                         <FileText size={12} style={{ flexShrink: 0 }} />
                         <span>{t.displayName}</span>
                         {getStatusIcon(t.name)}

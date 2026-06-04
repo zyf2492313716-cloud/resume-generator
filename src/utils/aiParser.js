@@ -518,3 +518,79 @@ export async function parseResumeText(text, config) {
     return { data: parseWithLocalRules(text), source: 'local' };
   }
 }
+
+export async function polishText(text, apiConfig, mode = 'professional') {
+  const { apiUrl, apiKey, modelName } = apiConfig;
+  if (!apiUrl || !apiKey) {
+    throw new Error("请先在左侧配置 AI API 的 Base URL 和 API Key！");
+  }
+  
+  function normalizeUrl(url) {
+    if (!url) return '';
+    url = url.replace(/\/+$/, '');
+    if (url.includes('/chat/completions') || url.match(/\/v\d+\/chat\/completions$/)) return url;
+    if (url.includes('api.openai.com')) return url + '/v1/chat/completions';
+    if (url.includes('api.deepseek.com')) return url + '/chat/completions';
+    if (url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost')) {
+      return url + '/v1/chat/completions';
+    }
+    return url + '/chat/completions';
+  }
+
+  let systemPrompt = '';
+  if (mode === 'star') {
+    systemPrompt = `你是一个专业的简历内容润色和 STAR 原则改写专家。
+请帮我将输入的简历文案重构为符合 STAR 原则（Situation-情境, Task-任务, Action-行动, Result-结果）的高水平量化描述。
+要求：
+1. 语言干练，突出技术深度或业务贡献。
+2. 尽量补充和突出量化数据和具体指标（如性能提升xx%，研发周期缩短xx%，若原句无具体数字则合理估算或使用百分比占位符如 xx%）。
+3. 结构必须遵循：【S/T-背景任务】面临何种架构/业务挑战 ➔ 【A-行动】使用何种方案/技术栈进行开发重构 ➔ 【R-结果】最终取得的性能提升或业务成果。
+4. ⚠️ 必须只返回重写后的文案内容本身，禁止返回任何多余的客套话或前缀介绍。
+5. 统一使用简体中文。`;
+  } else if (mode === 'shorten') {
+    systemPrompt = `你是一个简历排版精简专家。
+请帮我把输入的简历经历文案在“保留核心工作要点和业绩”的前提下，进行大幅度缩短精炼，以解决简历页面排版溢出的痛点。
+要求：
+1. 保留关键技术名词与核心量化成果。
+2. 剔除多余的辅助描述词、主语及修饰性字眼，只留最干练的骨架。
+3. ⚠️ 必须只返回精简后的文案本身，绝对禁止返回任何多余的解释。
+4. 统一使用简体中文。`;
+  } else {
+    systemPrompt = `你是一个专业的简历内容润色和优化专家。
+请帮我优化润色输入的这句简历文案，使其显得更专业、用词更具书面语与 HR 敏感度。
+要求：
+1. 表达干练精简，避免口语化和冗余。
+2. 保持与原文案语义高度一致，不要随意虚构工作事实或学历背景。
+3. ⚠️ 必须只返回润色后的文案内容本身，不要返回任何解释和套话。
+4. 统一使用简体中文。`;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+
+  const response = await fetch(normalizeUrl(apiUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: modelName || "deepseek-chat",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text }
+      ],
+      temperature: 0.3
+    }),
+    signal: controller.signal
+  });
+
+  clearTimeout(timeout);
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API 错误 (HTTP ${response.status}): ${errorText}`);
+  }
+
+  const result = await response.json();
+  return result.choices[0].message.content.trim();
+}

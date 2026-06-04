@@ -47,6 +47,11 @@ export default function App() {
       setPreviewLoading(false);
       return;
     }
+    if (templateEngineType === 'spatial') {
+      // 绝对定位精雕预览由前端 InteractiveCanvas 像素级呈现，无需 Mammoth 转换预览
+      setPreviewLoading(false);
+      return;
+    }
     if (previewTimerRef.current) {
       clearTimeout(previewTimerRef.current);
     }
@@ -72,7 +77,7 @@ export default function App() {
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
-  }, [resumeData, selectedTemplate]);
+  }, [resumeData, selectedTemplate, templateEngineType]);
 
   const showNotification = useCallback(({ type, message }) => {
     setNotification({ type, message });
@@ -113,8 +118,10 @@ export default function App() {
         previewHtml={previewHtml}
         previewLoading={previewLoading}
         onNotification={showNotification}
-        templateName={selectedTemplate?.name}
+        selectedTemplate={selectedTemplate}
         resumeData={resumeData}
+        setResumeData={setResumeData}
+        engineType={templateEngineType}
       />
 
       <TemplatePanel
