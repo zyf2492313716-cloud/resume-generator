@@ -138,8 +138,9 @@ basic_info:
       type: label_inline
       pattern: 求职意向
     phone:
-      type: pattern_match
-      pattern_type: phone
+      type: keyword_scan
+      keywords:
+      - '2778546463'
     email:
       type: pattern_match
       pattern_type: email

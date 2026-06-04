@@ -18,7 +18,7 @@ NS_V = 'urn:schemas-microsoft-com:vml'
 # 全局板块关键字
 SECTION_PATTERNS = {
     'education': ['教育背景', '教育经历', '修业背景', '教育', 'EDUCATION', 'Education'],
-    'experience': ['工作经历', '工作经验', '实习经历', '工作实践', '工作', 'EXPERIENCE', 'Experience', 'JOB EXPERIENCE'],
+    'experience': ['工作经历', '工作经验', '实习经历', '工作实践', '工作', 'EXPERIENCE', 'Experience', 'JOB EXPERIENCE', '实习实践'],
     'projects': ['项目经验', '项目经历', '专研项目', '项目', 'PROJECTS', 'Projects'],
     'studentWork': ['校内实践', '在校经历', '社团经历', '学生活动', '学生工作', '实践经验'],
     'honors': ['荣誉证书', '荣誉奖项', '证书奖励', '个人荣誉', '获奖经历', '奖项荣誉', '资格证书', '荣誉AWARDS', 'AWARDS'],
@@ -50,6 +50,7 @@ ALL_KNOWN_NAMES = [
     '王雅婷', '刘雅琪', '赵思远', '孙子轩', '周梦琪', '吴子涵',
     '郑子轩', '黄雅婷', '林雨涵', '陈雨萱', '林宇凡', '赵晓',
     '张 芸', '刘 璇', '庄 晓', '乔 彬', '林 萧', '知页', '陈知页',
+    '谢云', '谢 云', '李思', '李 思', '朱七七', '朱 七七',
 ]
 
 def parse_pt_to_emu(val_str):
@@ -82,6 +83,7 @@ class SpatialFiller:
         self.template_path = template_path
         self.data = data
         self.warnings = []
+        self.base_name = os.path.basename(template_path).replace('.docx', '').replace('.docxtpl', '')
 
         with zipfile.ZipFile(template_path, 'r') as z:
             self.doc_xml = z.read('word/document.xml').decode('utf-8')
@@ -183,6 +185,12 @@ class SpatialFiller:
         """Perform 1D DBSCAN-like clustering on X coordinates."""
         if not txbxs:
             return []
+
+        # Enable global layout sorting only for specific whitelist templates
+        global_sorting_whitelist = {"文艺单页10", "文艺单页12", "稳重单页06", "稳重单页12", "稳重单页20", "简约单页25"}
+        if hasattr(self, 'base_name') and self.base_name in global_sorting_whitelist:
+            return [txbxs]
+
         # Sort by X axis
         sorted_txbxs = sorted(txbxs, key=lambda d: d['x'])
         columns = []
@@ -197,6 +205,20 @@ class SpatialFiller:
                 current_col = [item]
         columns.append(current_col)
         return columns
+
+    def _is_basic_info_box(self, text):
+        for name in self.known_names:
+            if name in text:
+                return True
+        text_no_space = re.sub(r'[\s\-–—]+', '', text)
+        if re.search(r'1[3-9]\d{9}', text_no_space):
+            return True
+        if re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]*\.[a-zA-Z]{2,}', text):
+            return True
+        for prefix in ['微信', 'wechat', 'QQ', '地址', 'address', '求职意向', '应聘职位']:
+            if prefix in text and len(text) < 40:
+                return True
+        return False
 
     def _parse_inline_header(self, text):
         """Detect if header and content are in the same text block."""
@@ -259,6 +281,9 @@ class SpatialFiller:
                         break
                         
                 if is_header:
+                    continue
+                    
+                if self._is_basic_info_box(full_txt):
                     continue
                     
                 # Check for inline header (header + content in same box)
@@ -328,9 +353,19 @@ class SpatialFiller:
             
             # 1. Replace phone numbers (e.g. 13800138000, 152 0032 0007, 138-0000-0000)
             if basic.get('phone'):
-                phone_pat = r'1[3-9]\d(?:\s*[-–]?\s*\d){8}'
-                if re.search(phone_pat, new_txt):
-                    new_txt = re.sub(phone_pat, basic['phone'], new_txt)
+                mapping = []
+                text_no_space = ""
+                for idx, char in enumerate(new_txt):
+                    if char not in " \t\n\r-–—":
+                        mapping.append(idx)
+                        text_no_space += char
+                
+                match = re.search(r'1[3-9]\d{8,9}', text_no_space)
+                if match:
+                    start_no_space, end_no_space = match.start(), match.end()
+                    start_orig = mapping[start_no_space]
+                    end_orig = mapping[end_no_space - 1] + 1
+                    new_txt = new_txt[:start_orig] + basic['phone'] + " " + new_txt[end_orig:]
                     modified = True
                     
             # 2. Replace email addresses

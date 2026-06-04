@@ -33,6 +33,9 @@ def _normalize_chinese_spaces(text):
     """Remove spaces between Chinese characters and strip English suffixes."""
     text = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', text)
     text = re.sub(r'\s+[A-Za-z\s]+$', '', text).strip()
+    # Strip trailing English suffix even if there are no spaces, provided Chinese chars are present
+    if re.search(r'[\u4e00-\u9fff]', text) and re.search(r'[A-Za-z]+$', text):
+        text = re.sub(r'\s*[A-Za-z\s]+$', '', text).strip()
     return text
 
 # Register namespace prefixes so lxml preserves them during serialization
@@ -345,35 +348,40 @@ class TemplateEngine:
     def _fill_pattern_match(self, pattern_type, value):
         import re
         if pattern_type == 'phone':
-            # Match 10-11 digit phone numbers starting with 1
-            # Also handle dashed format: 138-0013-8000
-            regex = re.compile(r'1[3-9]\d{8,9}')
-            dashed_regex = re.compile(r'1[3-9]\d-\d{4}-\d{4}')
-        elif pattern_type == 'email':
-            # Match email addresses (including edge cases like @.com)
-            regex = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]*\.[a-zA-Z]{2,}')
-            dashed_regex = None
-        else:
+            for pi, p in enumerate(self.paragraphs):
+                for t in p.iter(f'{{{NS}}}t'):
+                    txt = (t.text or '').strip()
+                    if not txt:
+                        continue
+                    # Build index mapping for non-space, non-dash characters
+                    mapping = []
+                    text_no_space = ""
+                    for idx, char in enumerate(txt):
+                        if char not in " \t\n\r-–—":
+                            mapping.append(idx)
+                            text_no_space += char
+                    
+                    match = re.search(r'1[3-9]\d{8,9}', text_no_space)
+                    if match:
+                        start_no_space, end_no_space = match.start(), match.end()
+                        start_orig = mapping[start_no_space]
+                        end_orig = mapping[end_no_space - 1] + 1
+                        new_txt = txt[:start_orig] + value + " " + txt[end_orig:]
+                        self._set_node_text(t, new_txt)
+                        return True
             return False
-
-        for pi, p in enumerate(self.paragraphs):
-            # Use iter() to find text nodes in nested paragraphs too
-            for t in p.iter(f'{{{NS}}}t'):
-                txt = (t.text or '').strip()
-                if not txt:
-                    continue
-                # Try dashed format first for phone
-                if pattern_type == 'phone' and dashed_regex:
-                    match = dashed_regex.search(txt)
+        elif pattern_type == 'email':
+            regex = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]*\.[a-zA-Z]{2,}')
+            for pi, p in enumerate(self.paragraphs):
+                for t in p.iter(f'{{{NS}}}t'):
+                    txt = (t.text or '').strip()
+                    if not txt:
+                        continue
+                    match = regex.search(txt)
                     if match:
                         new_txt = txt[:match.start()] + value + txt[match.end():]
                         self._set_node_text(t, new_txt)
                         return True
-                match = regex.search(txt)
-                if match:
-                    new_txt = txt[:match.start()] + value + txt[match.end():]
-                    self._set_node_text(t, new_txt)
-                    return True
         return False
 
     # ── Mode 4: section_replace ────────────────────────────────────────
@@ -851,7 +859,8 @@ def fill_with_fallback(template_path: str, data: dict, output_path: str) -> bool
     spatial_whitelist = {
         "文艺单页04", "文艺单页07", "文艺单页09", "文艺单页16",
         "活泼单页12", "知页简历02", "知页简历03", "稳重单页01", "稳重单页21",
-        "简约单页18", "简约单页19", "简约单页30"
+        "简约单页18", "简约单页19", "简约单页30",
+        "文艺单页10", "文艺单页12", "稳重单页06", "稳重单页12", "稳重单页20", "简约单页25"
     }
     base_name = os.path.basename(template_path).replace('.docx', '')
     

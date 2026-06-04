@@ -95,7 +95,18 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
     setResumeData(prev => ({ ...prev, basicInfo: { ...prev.basicInfo, [field]: val } }));
   };
 
+  const isLimitReached = (key) => {
+    if (engineType === 'docxtpl') return false;
+    const limitSections = ['education', 'experience', 'projects', 'research', 'studentWork'];
+    if (!limitSections.includes(key)) return false;
+    return (resumeData[key] || []).length >= 2;
+  };
+
   const addArrayItem = (type, defaultObj) => {
+    if (isLimitReached(type)) {
+      onNotification({ type: 'warning', message: '普通模板最多支持 2 条经历以防排版重叠，如需添加更多，请切换至精雕模板' });
+      return;
+    }
     setResumeData(prev => ({ ...prev, [type]: [...(prev[type] || []), defaultObj] }));
     onNotification({ type: 'info', message: '已添加' });
   };
@@ -297,12 +308,19 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 700 }}>
                     <section.icon size={15} style={{ color: 'var(--color-accent)' }} /> {section.title}
                   </div>
-                  <button onClick={() => addArrayItem(section.key, section.default)} style={{
-                    background: 'rgba(59,130,246,0.15)', border: 'none',
-                    color: 'var(--color-accent)', borderRadius: '4px',
-                    padding: '3px 8px', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', gap: '3px'
-                  }}><Plus size={12} /> 添加</button>
+                  <button onClick={() => addArrayItem(section.key, section.default)} 
+                    disabled={isLimitReached(section.key)}
+                    style={{
+                      background: isLimitReached(section.key) ? 'rgba(255,255,255,0.05)' : 'rgba(59,130,246,0.15)',
+                      border: 'none',
+                      color: isLimitReached(section.key) ? '#6b7280' : 'var(--color-accent)',
+                      borderRadius: '4px',
+                      padding: '3px 8px', fontSize: '11px', fontWeight: 600,
+                      cursor: isLimitReached(section.key) ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '3px'
+                    }}
+                    title={isLimitReached(section.key) ? '普通模板最多支持2条经历以防排版重叠' : '添加条目'}
+                  ><Plus size={12} /> 添加</button>
                 </div>
                 {(resumeData[section.key] || []).map((item, idx) => (
                   <div key={idx} style={{ ...cardStyle, marginBottom: '8px' }}>
@@ -335,14 +353,14 @@ export default function EditorPanel({ resumeData, setResumeData, onNotification,
                       style={{ ...smallInput, marginTop: '6px', height: '50px', resize: 'vertical' }} />
                   </div>
                 ))}
-                {engineType !== 'docxtpl' && (resumeData[section.key] || []).length >= 3 && (
+                {engineType !== 'docxtpl' && (resumeData[section.key] || []).length >= 2 && (
                   <div style={{
-                    fontSize: '11px', color: '#f87171', marginTop: '4px', marginBottom: '8px',
+                    fontSize: '11px', color: '#fbbf24', marginTop: '4px', marginBottom: '8px',
                     display: 'flex', alignItems: 'center', gap: '6px',
-                    background: 'rgba(239,68,68,0.08)', padding: '6px 10px', borderRadius: '4px',
-                    border: '1px solid rgba(239,68,68,0.15)'
+                    background: 'rgba(245,158,11,0.08)', padding: '6px 10px', borderRadius: '4px',
+                    border: '1px solid rgba(245,158,11,0.15)'
                   }}>
-                    <span>⚠️</span> 当前经历已达 {(resumeData[section.key] || []).length} 条。由于当前模板为固定单页排版，导出 Word 后可能会因文本重叠发生遮挡，推荐切换为精雕模板。
+                    <span>⚠️</span> 当前经历已达 2 条。由于当前模板为固定单页排版，为了避免排版重叠遮挡，已限制在当前模板下添加。建议切换至精雕模板以启用无限条目自动分页。
                   </div>
                 )}
               </div>

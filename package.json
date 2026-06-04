@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "electron": "electron .",
     "install-python-deps": "bash scripts/install-python-deps.sh",
-    "dist": "bash scripts/install-python-deps.sh && vite build && PATH=\"scripts/py-wrapper:/opt/homebrew/bin:/usr/bin:/bin\" electron-builder --mac --publish=never"
+    "dist": "bash scripts/install-python-deps.sh && vite build && PATH=\"scripts/py-wrapper:node_modules/.bin:/opt/homebrew/bin:/usr/bin:/bin\" electron-builder --mac --publish=never"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
